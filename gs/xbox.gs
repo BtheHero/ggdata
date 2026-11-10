@@ -187,6 +187,7 @@ function exportUS_() {
         if (product.productId && product.ratingCount) RATINGS[String(product.productId).toUpperCase()] = [product.averageRating || 0, product.ratingCount];
         if (product.productId && product.categories && product.categories.length) GENRES[String(product.productId).toUpperCase()] = product.categories.slice(0, 4);
         if (product.productId) { const sq = shortImg_(pickSquare_(product)); if (sq) SQUARE[product.productId] = sq; }
+        if (product.productId) { const rd = String(realDate_(product.releaseDate) || "").slice(0, 10); if (/^(19[7-9]|20)\d\d-/.test(rd)) RELEASES[String(product.productId).toUpperCase()] = rd; }
         if (product.productId && product.hasAddOns) ADDON_GAMES.push([product.productId, product.title || "", product.ratingCount || 0]);
         if (product.productId) { const d = descText_(product.shortDescription, product.description); if (d) DESCS[String(product.productId).toUpperCase()] = d; }
         notePasses_(product);
@@ -249,6 +250,8 @@ function exportUS_() {
   try { saveJsonToDrive_(RATINGS, "xbox_ratings.json", "XRATINGS_FILE_ID"); } catch (e) { Logger.log("Ratings file failed: " + e.message); }
   // every game's genres, for the game pages (GamePages.gs)
   try { saveJsonToDrive_(GENRES, "xbox_genres.json", "XGENRES_FILE_ID"); } catch (e) { Logger.log("Genres file failed: " + e.message); }
+  // every game's release date, for the game pages (GamePages.gs)
+  try { saveJsonToDrive_(RELEASES, "xbox_release.json", "XRELEASE_FILE_ID"); } catch (e) { Logger.log("Release dates file failed: " + e.message); }
   // every game's store description, for the game pages (GamePages.gs)
   try { saveJsonToDrive_(DESCS, "xbox_desc.json", "XDESC_FILE_ID"); } catch (e) { Logger.log("Descriptions file failed: " + e.message); }
   // the games that have add-ons, for the add-on lookups (exportXboxAddOns in XboxAddOns.gs)
@@ -315,6 +318,7 @@ function descText_(short, long) {
   }
   return t;
 }
+let RELEASES = {};      // product id -> its release date ("yyyy-mm-dd"), for the game pages
 let SQUARE = {};        // product id -> its square box art (short form, see shortImg_), for the full game list
 let ADDON_GAMES = [];   // [id, title, number of ratings] of every game the store says has add-ons
 let GENRES = {};   // product id -> its genres ("categories" in the store listing), for the game pages' related games
