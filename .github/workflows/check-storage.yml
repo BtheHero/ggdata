@@ -1,0 +1,24 @@
+# Checks that the jobs can save files to the R2 bucket: writes a small file, reads it back.
+name: Check storage
+on:
+  workflow_dispatch:
+  push:
+    paths: [.github/workflows/check-storage.yml]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write and read a test file
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          [ -n "$AWS_ACCESS_KEY_ID" ] || { echo "Secret R2_ACCESS_KEY_ID is missing"; exit 1; }
+          [ -n "$AWS_SECRET_ACCESS_KEY" ] || { echo "Secret R2_SECRET_ACCESS_KEY is missing"; exit 1; }
+          [ "$ENDPOINT" != "https://.r2.cloudflarestorage.com" ] || { echo "Secret R2_ACCOUNT_ID is missing"; exit 1; }
+          echo "{\"ok\":true,\"at\":\"$(date -u +%FT%TZ)\"}" > check.json
+          aws s3 cp check.json s3://ggdata/check.json --endpoint-url "$ENDPOINT" --content-type application/json
+          aws s3 cp s3://ggdata/check.json - --endpoint-url "$ENDPOINT"
+          echo "Storage works."
