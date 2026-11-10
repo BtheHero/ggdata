@@ -186,6 +186,7 @@ function exportUS_() {
         if (product.productId && pcOnly_(product)) pcIds.add(product.productId);
         if (product.productId && product.ratingCount) RATINGS[String(product.productId).toUpperCase()] = [product.averageRating || 0, product.ratingCount];
         if (product.productId && product.categories && product.categories.length) GENRES[String(product.productId).toUpperCase()] = product.categories.slice(0, 4);
+        if (product.productId) { const sq = shortImg_(pickSquare_(product)); if (sq) SQUARE[product.productId] = sq; }
         if (product.productId && product.hasAddOns) ADDON_GAMES.push([product.productId, product.title || "", product.ratingCount || 0]);
         if (product.productId) { const d = descText_(product.shortDescription, product.description); if (d) DESCS[String(product.productId).toUpperCase()] = d; }
         notePasses_(product);
@@ -265,7 +266,9 @@ function exportUS_() {
   Logger.log("JSON saved: " + file.getUrl());
 
   // Slim list of ALL games, used by the site's search
-  catalog.forEach(r => r.push(subsFor_(r[0], r[2], r[1], gamePass).join(","), pcIds.has(r[0]) ? 1 : 0, upc[r[0]] || "", tiersFor_(r[0]).join(",")));
+  // [.., subs, pc, upcoming release, tiers, (store url and product id: PlayStation only), square art]
+  catalog.forEach(r => r.push(subsFor_(r[0], r[2], r[1], gamePass).join(","), pcIds.has(r[0]) ? 1 : 0, upc[r[0]] || "", tiersFor_(r[0]).join(","),
+                              "", "", sqShort_(SQUARE[r[0]], r[6])));
   const catFile = saveJsonToDrive_(
     { updatedAt: new Date().toISOString(), count: catalog.length, games: catalog },
     "xbox_catalog.json", "CATALOG_FILE_ID"
@@ -312,6 +315,7 @@ function descText_(short, long) {
   }
   return t;
 }
+let SQUARE = {};        // product id -> its square box art (short form, see shortImg_), for the full game list
 let ADDON_GAMES = [];   // [id, title, number of ratings] of every game the store says has add-ons
 let GENRES = {};   // product id -> its genres ("categories" in the store listing), for the game pages' related games
 function pickWide_(product) {
@@ -487,6 +491,12 @@ function subsFor_(productId, publisher, title, gamePass) {
 }
 
 const IMG_PREFIX = "https://store-images.s-microsoft.com/image/";
+// The square art in the full game list, shorter: the store's image names are "apps.<n>.<id>.<id>.<id>" and a game's poster
+// and square art usually share the middle parts, so only "=<n>.<last part>" is kept then (site: common.js sqOf; GamePages.gs)
+function sqShort_(sq, poster) {
+  const a = String(sq || "").split("."), b = String(poster || "").split(".");
+  return !sq ? "" : a.length === 5 && b.length === 5 && a[0] === b[0] && a[2] === b[2] && a[3] === b[3] ? "=" + a[1] + "." + a[4] : sq;
+}
 function shortImg_(u) {
   return u && u.startsWith(IMG_PREFIX) ? u.slice(IMG_PREFIX.length) : u;
 }
@@ -711,7 +721,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
       title: i.title || r[1] || "",
       publisher: i.publisher || r[2] || "",
       image: shortImg_(i.image) || r[6] || null,
-      sq: shortImg_(i.square) || (SALE_ART[id] && shortImg_(SALE_ART[id].sq)) || null,
+      sq: shortImg_(i.square) || (SALE_ART[id] && shortImg_(SALE_ART[id].sq)) || SQUARE[id] || null,
       wide: shortImg_(i.wide) || (SALE_ART[id] && shortImg_(SALE_ART[id].wide)) || null,
       ra: RATINGS[id] ? RATINGS[id][0] : null,
       rc: RATINGS[id] ? RATINGS[id][1] : 0,
