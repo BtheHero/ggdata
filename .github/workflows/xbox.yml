@@ -19,10 +19,10 @@ jobs:
       AWS_DEFAULT_REGION: auto
       R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
       - name: Download the saved files
         run: aws s3 sync s3://ggdata/data data --endpoint-url "$R2" --only-show-errors
       - name: Copy files from the site
