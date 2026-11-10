@@ -1,0 +1,36 @@
+# The Xbox store data: US export (deals, full game list, home page, price history, Game Pass), then the 10 other regions.
+# Twice a day: just after new Xbox sales start (they start at midnight UTC) and in the morning (US time).
+name: Xbox
+on:
+  schedule:
+    - cron: "17 0 * * *"
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+concurrency:
+  group: data-files   # jobs never write the same files at the same time
+  cancel-in-progress: false
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Download the saved files
+        run: aws s3 sync s3://ggdata/data data --endpoint-url "$R2" --only-show-errors
+      - name: Copy files from the site
+        env:
+          SOURCE_API: ${{ secrets.SOURCE_API }}
+        run: node seed.js
+      - name: Run the export
+        run: node run.js xbox
+      - name: Upload the files
+        if: always()
+        run: aws s3 sync data s3://ggdata/data --endpoint-url "$R2" --content-type application/json --only-show-errors
