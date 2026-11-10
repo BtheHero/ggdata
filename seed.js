@@ -7,7 +7,12 @@ const FILES = [   // [property key, file name, query, refresh every run]
   ["HISTORY_FILE_ID", "xbox_history.json", "file=history"],
   ["WISHCOUNTS_FILE_ID", "wishcounts.json", "file=wishcounts", true],
 ];
-if (!api) { console.log("SOURCE_API isn't set: nothing to copy."); process.exit(0); }
+if (!api) {
+  const missing = FILES.filter(f => !f[3] && !fs.existsSync(path.join(dir, f[1]))).map(f => f[1]);
+  if (missing.length) { console.log("SOURCE_API isn't set, and " + missing.join(", ") + " must be copied first."); process.exit(1); }
+  console.log("SOURCE_API isn't set: nothing to copy.");
+  process.exit(0);
+}
 fs.mkdirSync(dir, { recursive: true });
 const pf = path.join(dir, "_props.json");
 let props = {};
