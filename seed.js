@@ -32,3 +32,19 @@ FILES.forEach(([key, name, q, refresh]) => {
   }
 });
 fs.writeFileSync(pf, JSON.stringify(props, null, 1));
+
+// With SRC_DIR set: the PlayStation game lists, which are still made by the site's data service, for the media job.
+// Kept outside data/ (they aren't this repository's files to publish).
+if (process.env.SRC_DIR) {
+  const src = path.resolve(process.env.SRC_DIR);
+  fs.mkdirSync(src, { recursive: true });
+  [["ps_catalog.json", "file=catalog&platform=ps"], ["ps_sales.json", "platform=ps"]].forEach(([name, q]) => {
+    try {
+      const body = execFileSync("curl", ["-sSL", "--max-time", "180", api + "?" + q], { maxBuffer: 1 << 30, encoding: "utf8" });
+      const d = JSON.parse(body);
+      if (!d.games || !d.games.length) throw new Error("no games");
+      fs.writeFileSync(path.join(src, name), body);
+      console.log("Copied " + name + " (" + d.games.length + " games)");
+    } catch (e) { console.log("Couldn't copy " + name + ": " + e.message); }
+  });
+}

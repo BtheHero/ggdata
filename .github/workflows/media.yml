@@ -1,0 +1,35 @@
+# Screenshots, trailers, key art and genres of every game (jobs/media.js), once a day after the morning Xbox run.
+name: Media
+on:
+  schedule:
+    - cron: "43 10 * * *"
+  workflow_dispatch:
+concurrency:
+  group: data-files   # jobs never write the same files at the same time
+  cancel-in-progress: false
+jobs:
+  media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SRC_DIR: src
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Download the saved files
+        run: aws s3 sync s3://ggdata/data data --endpoint-url "$R2" --only-show-errors
+      - name: Copy files from the site
+        env:
+          SOURCE_API: ${{ secrets.SOURCE_API }}
+        run: node seed.js
+      - name: Look up the media
+        run: node run.js media
+      - name: Upload the files
+        if: always()
+        run: aws s3 sync data s3://ggdata/data --endpoint-url "$R2" --content-type application/json --only-show-errors
