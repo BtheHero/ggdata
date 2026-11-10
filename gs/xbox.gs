@@ -187,6 +187,7 @@ function exportUS_() {
         if (product.productId && product.ratingCount) RATINGS[String(product.productId).toUpperCase()] = [product.averageRating || 0, product.ratingCount];
         if (product.productId && product.categories && product.categories.length) GENRES[String(product.productId).toUpperCase()] = product.categories.slice(0, 4);
         if (product.productId && product.hasAddOns) ADDON_GAMES.push([product.productId, product.title || "", product.ratingCount || 0]);
+        if (product.productId) { const d = descText_(product.shortDescription, product.description); if (d) DESCS[String(product.productId).toUpperCase()] = d; }
         notePasses_(product);
         // No purchase offer = bundle component or Game Pass-only listing, so skip it
         if (purchase) catalog.push([
@@ -247,6 +248,8 @@ function exportUS_() {
   try { saveJsonToDrive_(RATINGS, "xbox_ratings.json", "XRATINGS_FILE_ID"); } catch (e) { Logger.log("Ratings file failed: " + e.message); }
   // every game's genres, for the game pages (GamePages.gs)
   try { saveJsonToDrive_(GENRES, "xbox_genres.json", "XGENRES_FILE_ID"); } catch (e) { Logger.log("Genres file failed: " + e.message); }
+  // every game's store description, for the game pages (GamePages.gs)
+  try { saveJsonToDrive_(DESCS, "xbox_desc.json", "XDESC_FILE_ID"); } catch (e) { Logger.log("Descriptions file failed: " + e.message); }
   // the games that have add-ons, for the add-on lookups (exportXboxAddOns in XboxAddOns.gs)
   try { saveJsonToDrive_({ updatedAt: new Date().toISOString(), games: ADDON_GAMES }, "xbox_addon_games.json", "XADDONGAMES_FILE_ID"); } catch (e) { Logger.log("Add-on games file failed: " + e.message); }
   const gamePass = enrichGames_(games, startTime);
@@ -283,6 +286,32 @@ let SALE_ART = {};
 // Store ratings of every game, [average out of 5, number of ratings], read while crawling.
 // The home page uses the number to tell well-known games from obscure ones.
 let RATINGS = {};
+let DESCS = {};         // product id -> the start of its store description
+// A store description as plain text, at most DESC_MAX characters (cut at a sentence or word). Editions often start
+// with a list of what they include ("The Deluxe Edition includes: • …"): that list is left out when the description
+// goes on to describe the game.
+const DESC_MAX = 700;
+const EDITION_LIST = /^[^.\n]{0,80}\b(edition|bundle|pack|collection|version|purchase)\b[^.\n]{0,60}\b(includes?|contains?|comes with|you get)\b[^\n]*$/i;
+function descText_(short, long) {
+  const clean = x => String(x || "").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&nbsp;/g, " ")
+    .replace(/\r/g, "").replace(/[ \t]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  // without a leading "this edition includes" list (its heading line and the bulleted lines after it)
+  const body = x => {
+    const lines = x.split("\n");
+    if (!EDITION_LIST.test(lines[0])) return x;
+    let i = 1;
+    while (i < lines.length && (/^\s*([•·*\-–]|\d+[.)])\s*/.test(lines[i]) || !lines[i].trim())) i++;
+    return lines.slice(i).join("\n").trim();
+  };
+  const l = clean(long), s = clean(short), lb = body(l), sb = body(s);
+  let t = lb.length >= 80 ? lb : sb.length >= 80 ? sb : l || s;
+  if (t.length > DESC_MAX) {
+    const cut = t.slice(0, DESC_MAX), end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf(".\n"), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+    t = end > DESC_MAX * 0.5 ? cut.slice(0, end + 1) : cut.replace(/\s+\S*$/, "") + "…";
+  }
+  return t;
+}
 let ADDON_GAMES = [];   // [id, title, number of ratings] of every game the store says has add-ons
 let GENRES = {};   // product id -> its genres ("categories" in the store listing), for the game pages' related games
 function pickWide_(product) {
