@@ -370,6 +370,25 @@ function gamePagesFor_(pre) {
     if (!e.d) e.d = descOf(id);
     if (ps && PS_ADDON_KINDS.test(String(g.kind || "").trim())) e.kd = String(g.kind).trim();   // an add-on, not a game
   });
+  // Games the store doesn't sell yet but the site links to (upcoming games, coming to Game Pass, wishlisted...):
+  // a page each, from the home page rows and the Game Pass lists; np = no price yet
+  const listed = [], home = psReadJson_(pre + "HOME_FILE_ID", { sections: {} }).sections || {};
+  Object.keys(home).forEach(k => Array.isArray(home[k]) && home[k].forEach(e => { if (e && e.id) listed.push(e); }));
+  if (!ps) { const gpl = psReadJson_("GAMEPASS_FILE_ID", {}); ["coming", "added", "all"].forEach(k => (gpl[k] || []).forEach(e => { if (e && e.id) listed.push(e); })); }
+  let unsold = 0;
+  listed.forEach(e => {
+    const id = String(e.id);
+    if (!e.title || !e.image || games[id]) return;
+    const priced = Number(e.price) > 0 || Number(e.msrp) > 0;
+    games[id] = {
+      t: e.title, p: e.publisher || "", i: e.image, q: e.sq || undefined, pr: Number(e.price) || 0, m: Number(e.msrp) || Number(e.price) || 0, c: e.currency || "USD",
+      s: (e.gp ? [ps ? "psplus" : "gamepass"] : []).concat(e.xs || []), ti: e.tiers || [], r: e.release || (!e.ends && e.date) || relOf(id) || undefined,
+      g: (e.genres && e.genres.length ? e.genres.slice(0, 4) : genresOf(id)) || undefined, u: e.url || undefined,
+      ra: rating(id), mc: score(id), d: descOf(id), np: priced || e.f2p ? undefined : 1, xp: e.xpa ? 1 : undefined
+    };
+    unsold++;
+  });
+  console.log((ps ? "PlayStation" : "Xbox") + " pages for listed games not in the full list: " + unsold);
   // Xbox add-ons on sale (looked up by exportXboxAddOns, XboxAddOns.gs): a page each, like PlayStation's
   if (!ps) (psReadJson_("XADDONS_FILE_ID", { games: [] }).games || []).forEach(g => {
     const id = g.productId;
