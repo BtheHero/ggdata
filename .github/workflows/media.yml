@@ -28,7 +28,10 @@ jobs:
         env:
           SOURCE_API: ${{ secrets.SOURCE_API }}
         run: node seed.js
+      - name: Every Xbox add-on (part of the games each day)
+        run: node run.js alladdons
       - name: Look up the media
+        if: always()
         run: node run.js media
       - name: Upload the files
         if: always()

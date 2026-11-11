@@ -1055,7 +1055,7 @@ const bigOff_ = e => e.price > 0 && e.msrp > e.price && Math.round((1 - e.price 
 // Apps Script allows 20,000 web requests (UrlFetch) a day on a personal Google account, and every request fails
 // once they're used up. The background jobs (psFillPublishers, fillScores) count what they use here and stop at
 // BACKGROUND_BUDGET a day between them, which leaves room for the daily exports and the site's pop-ups.
-const BACKGROUND_BUDGET = 9000;
+const BACKGROUND_BUDGET = 1e9;   // no daily request limit on GitHub (Apps Script allows 20,000)
 // Records n requests (0 = just ask) and returns how many the background jobs may still make today (UTC)
 function fetchBudget_(n) {
   const p = PropertiesService.getScriptProperties(), day = Utilities.formatDate(new Date(), "UTC", "yyyyMMdd");
