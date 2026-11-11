@@ -306,6 +306,7 @@ function exportUS_() {
   // the games that have add-ons, for the add-on lookups (exportXboxAddOns in XboxAddOns.gs)
   try { saveJsonToDrive_({ updatedAt: new Date().toISOString(), games: ADDON_GAMES }, "xbox_addon_games.json", "XADDONGAMES_FILE_ID"); } catch (e) { Logger.log("Add-on games file failed: " + e.message); }
   const gamePass = enrichGames_(games, startTime);
+  try { loadXpa_(); games.forEach(g => { if (isXpa_(g.productId)) g.xpa = 1; }); } catch (e) { Logger.log("Play Anywhere tags failed: " + e.message); }
   try { updateHistory_(catalog, games); } catch (e) { Logger.log("History update failed: " + e.message); }
 
   const file = saveJsonToDrive_({
@@ -318,9 +319,9 @@ function exportUS_() {
   Logger.log("JSON saved: " + file.getUrl());
 
   // Slim list of ALL games, used by the site's search
-  // [.., subs, pc, upcoming release, tiers, (store url and product id: PlayStation only), square art]
+  // [.., subs, pc, upcoming release, tiers, (store url and product id: PlayStation only), square art, Play Anywhere]
   catalog.forEach(r => r.push(subsFor_(r[0], r[2], r[1], gamePass).join(","), pcIds.has(r[0]) ? 1 : 0, upc[r[0]] || "", tiersFor_(r[0]).join(","),
-                              "", "", sqShort_(SQUARE[r[0]], r[6])));
+                              "", "", sqShort_(SQUARE[r[0]], r[6]), isXpa_(r[0]) ? 1 : 0));
   const catFile = saveJsonToDrive_(
     { updatedAt: new Date().toISOString(), count: catalog.length, games: catalog },
     "xbox_catalog.json", "CATALOG_FILE_ID"
@@ -664,6 +665,47 @@ function exportRegion_(code, chainStart) {
   return true;
 }
 
+// ---------- Xbox Play Anywhere ----------
+// Every Play Anywhere game (buy once, play on Xbox and PC): the store's browse list with its "Play with: Xbox Play
+// Anywhere" filter, 25 a page, each page asking for the next with the token the store gave (about 120 pages).
+// Saved as xbox_xpa.json {updatedAt, ids: {id: release date}}; when the store answers with less than half of the
+// saved list, the saved list is used.
+let XPA = null;
+function loadXpa_() {
+  if (XPA) return XPA;
+  const old = psReadJson_("XPA_FILE_ID", { ids: {} }).ids || {};
+  const filters = Utilities.base64Encode(JSON.stringify({ PlayWith: { id: "PlayWith", choices: [{ id: "XboxPlayAnywhere" }] } }));
+  const req = ct => {
+    const body = { Filters: filters, ChannelKeyToBeUsedInResponse: "BROWSE" };
+    if (ct) body.EncodedCT = ct;
+    return { method: "post", contentType: "application/json", payload: JSON.stringify(body), muteHttpExceptions: true,
+      headers: { "MS-CV": "test", "Accept": "application/json", "x-ms-api-version": "1.1" } };
+  };
+  const ids = {}, start = Date.now();
+  let total = 0, ct = "", pages = 0;
+  while (pages < 400 && Date.now() - start < 8 * 60000) {
+    let d = null;
+    for (let tries = 0; tries < 3 && !d; tries++) {
+      if (tries) Utilities.sleep(2000 * tries);
+      try { const r = UrlFetchApp.fetch("https://emerald.xboxservices.com/xboxcomfd/browse?locale=en-US", req(ct)); if (r.getResponseCode() === 200) d = JSON.parse(r.getContentText()); } catch (e) {}
+    }
+    if (!d) { Logger.log("Play Anywhere: page " + (pages + 1) + " failed, stopping"); break; }
+    pages++;
+    const ch = (d.channels && d.channels.BROWSE) || {};
+    total = ch.totalItems || total;
+    (d.productSummaries || []).forEach(x => { if (x.productId) ids[String(x.productId).toUpperCase()] = String(x.releaseDate || "").slice(0, 10); });
+    ct = ch.encodedCT;
+    if (!ct || !(d.productSummaries || []).length) break;
+  }
+  const n = Object.keys(ids).length, o = Object.keys(old).length;
+  Logger.log("Play Anywhere: " + n + " games (store total " + total + ", saved " + o + ")");
+  if (n < o * 0.5) { XPA = old; return XPA; }
+  XPA = ids;
+  try { saveJsonToDrive_({ updatedAt: new Date().toISOString(), ids: ids }, "xbox_xpa.json", "XPA_FILE_ID"); } catch (e) { Logger.log("Play Anywhere file failed: " + e.message); }
+  return XPA;
+}
+const isXpa_ = id => !!(XPA && XPA[String(id).toUpperCase()]);
+
 // ---------- Home page sections ----------
 const GAME_PASS_COMING_LIST = "095bda36-f5cd-43f2-9ee1-0a72f371fb96"; // "Coming to Game Pass" list (Fable, Persona 4 Revival, ...)
 
@@ -765,7 +807,11 @@ function buildHome_(catalog, dated, gamePass, sales) {
   // Most wishlisted: how many of this site's accounts wishlisted each Xbox game
   const wc = wishCounts_(), wished = Object.keys(wc).filter(id => /^[A-Z0-9]{12}$/i.test(id)).map(id => id.toUpperCase())
     .sort((a, b) => wc[b] - wc[a]).slice(0, 40);
-  const info = lookupProducts_(Array.from(new Set(coming.concat(added, near, topPaid, mostPlayed, gpIds, wished))));
+  // Newest Play Anywhere games: released, newest first, one per game (editions share a title), 30 kept
+  const xpaSeen = {}, xpaNew = Object.keys(XPA || {}).filter(id => row[id] && row[id][6] && XPA[id] && XPA[id] <= new Date(now).toISOString().slice(0, 10))
+    .sort((a, b) => XPA[b].localeCompare(XPA[a]))
+    .filter(id => { const t = editionKey_(row[id][1]); if (xpaSeen[t]) return false; xpaSeen[t] = true; return true; }).slice(0, 30);
+  const info = lookupProducts_(Array.from(new Set(coming.concat(added, near, topPaid, mostPlayed, gpIds, wished, xpaNew))));
 
   const entry = id => {
     const r = row[id] || [], i = info[id] || {};
@@ -790,6 +836,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
       tiers: tiersFor_(id),
       release: (i.released && Date.parse(i.released) > Date.now() ? i.released : null) || r[10] || null,
       genres: i.genres || [],
+      xpa: isXpa_(id) ? 1 : 0,
       f2p: !!(r.length && Number(r[3]) === 0 && Number(r[4]) === 0)   // free-to-play: has a store offer priced at 0
     };
   };
@@ -832,10 +879,20 @@ function buildHome_(catalog, dated, gamePass, sales) {
 
   const weekAgo = Number(Utilities.formatDate(new Date(Date.now() - 7 * 864e5), "UTC", "yyyyMMdd"));
   const nRatings = g => (RATINGS[String(g.productId).toUpperCase()] || [0, 0])[1];
+  // Trending deals: the "Trending games" order (the full list's), games on sale only, one per game
+  const onSale = id => saleBy[id] && Number(saleBy[id].msrp) > Number(saleBy[id].price);
+  const trendSeen = {}, trendsale = catalog.map(r => String(r[0]).toUpperCase()).filter(onSale)
+    .filter(id => { const t = editionKey_(saleBy[id].title); if (trendSeen[t]) return false; trendSeen[t] = true; return true; })
+    .slice(0, 30).map(id => fromSale(saleBy[id])).filter(ok).slice(0, N);
+  // Top Metacritic deals: games on sale with a Metascore of 80+, highest first (then most store ratings), one per game,
+  // 15 at most. The home page hides the row when fewer than 10 games qualify and fewer than 5 score 85+.
+  const metasale = topMetaSale_(sales, psReadJson_("SCORES_FILE_ID", {}), g => String(g.productId).toUpperCase(), nRatings, fromSale, ok, N);
   const sections = {
     spotPool: spotPool, spotV: 2,   // spotV 2: the SPOT_TOP most-rated games on sale
     hotPool: hotPool, hotV: 3,   // hotV 3: hotPool_ (most rated, 60%+ off, HOT_MIN_RATINGS)
     popIds: popIds,
+    trendsale: trendsale, metasale: metasale,
+    xpa: xpaNew.slice(0, N).map(entry).filter(ok),
     // Trending: the store's own order, paid games only
     popular: catalog.filter(r => r[6] && Number(r[3]) > 0).slice(0, N).map(r => entry(String(r[0]).toUpperCase())).filter(ok),
     // Upcoming: the next month (the home page shows 2 weeks, or the month when that's fewer than 6 games)
@@ -867,6 +924,17 @@ function buildHome_(catalog, dated, gamePass, sales) {
     "xbox_home.json", "HOME_FILE_ID"
   );
   Logger.log("Home saved: " + Object.keys(sections).filter(k => Array.isArray(sections[k])).map(k => k + "=" + sections[k].length).join(", ") + " " + file.getUrl());
+}
+
+// Games on sale with a Metascore of 80 or more, highest first, one per game, up to n (both stores).
+// scores: {id: [score, slug]}; idOf(g): the game's id in it; nRatings(g): store ratings, the tie-break
+function topMetaSale_(sales, scores, idOf, nRatings, toEntry, ok, n) {
+  const sc = g => { const s = scores[idOf(g)] || scores[String(idOf(g)).toLowerCase()]; return s && s[0] > 0 ? s : null; };
+  const seen = {};
+  return sales.filter(g => sc(g) && sc(g)[0] >= 80 && Number(g.msrp) > Number(g.price))
+    .sort((a, b) => sc(b)[0] - sc(a)[0] || nRatings(b) - nRatings(a))
+    .filter(g => { const t = editionKey_(g.title); if (seen[t]) return false; seen[t] = true; return true; })
+    .map(g => Object.assign(toEntry(g), { mc: sc(g)[0] })).filter(ok).slice(0, n);
 }
 
 // Discounted games under `max` (US price), most popular first (the store's own order), one per game, up to 30.

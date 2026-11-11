@@ -344,7 +344,8 @@ function gamePagesFor_(pre) {
       s: subsOf(r[8]), ti: subsOf(r[11]), pc: r[9] ? 1 : undefined, r: r[10] || relOf(pid, r[0]), u: r[12] || undefined, k: r[7] || undefined,
       ra: rating(pid || r[0]), mc: score(r[0]) || (pid && score(pid)), h: hist[pid || r[0]] || hist[r[0]] || undefined,
       pi: pid && pid !== r[0] ? pid : undefined, g: genresOf(pid, r[0]), d: descOf(pid, r[0]),
-      q: catSquare_(r) || undefined   // square art
+      q: catSquare_(r) || undefined,   // square art
+      xp: r[15] ? 1 : undefined   // Xbox Play Anywhere
     };
     if (pid && pid !== r[0]) games[pid] = { a: r[0] };
   });

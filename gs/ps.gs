@@ -382,7 +382,7 @@ function exportPlayStation_(opts) {
 
   // 2. Store rankings and newest releases (concepts = one entry per game)
   const top = (s, n) => psGrid_(PS_ALL_GAMES, { name: s, isAscending: false }, n || 40).items;
-  const bestselling = top("sales30"), trending = top("downloads30", 80), byRelease = psGrid_(PS_ALL_GAMES, { name: "conceptReleaseDate", isAscending: false }, 300).items;
+  const bestselling = top("sales30"), trending = top("downloads30", 80), trendMore = top("downloads30", 250), byRelease = psGrid_(PS_ALL_GAMES, { name: "conceptReleaseDate", isAscending: false }, 300).items;
 
   // 3. Sale end dates, publishers and release dates: looked up once, then kept in ps_cache.json
   const cache = psReadJson_("PS_CACHE_FILE_ID", { details: {}, offers: {} });
@@ -454,7 +454,7 @@ function exportPlayStation_(opts) {
   console.log("PlayStation history and files saved" + psAt_(startTime));
 
   // 5. Home page rows
-  try { psBuildHome_(games, bestselling, trending, byRelease, cache, trials); } catch (e) { Logger.log("PlayStation home failed: " + e.message); }
+  try { psBuildHome_(games, bestselling, trending, byRelease, cache, trials, trendMore); } catch (e) { Logger.log("PlayStation home failed: " + e.message); }
 
   // 6. The full catalog for search is the biggest step, so it runs separately right after this one
   // (first in the exportPsRegionsChain queue). Tests can still run it here with opts.catalogMax.
@@ -646,7 +646,7 @@ function psUpdateHistory_(games, onSale) {
 }
 
 // Home rows in the same shape as xbox_home.json. Cards carry their own store `url`.
-function psBuildHome_(games, bestselling, trending, byRelease, cache, trials) {
+function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, trendMore) {
   const now = Date.now(), N = 15;
   const byId = {};
   games.forEach(g => { byId[g.productId] = g; });
@@ -705,11 +705,25 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials) {
 
   const weekAgo = psDay_(now - 7 * 864e5);
   const released = byRelease.map(fromConcept).filter(ok);
+  // Trending deals: the most downloaded games (past 30 days) that are on sale, one per game
+  const trendSeen = {}, trendsale = [];
+  (trendMore || trending).forEach(c => {
+    const g = (c.products || []).map(p => byId[p.id]).find(g => g && g.msrp > g.price);
+    if (!g || trendsale.length >= N) return;
+    const t = editionKey_(g.title);
+    if (trendSeen[t]) return;
+    trendSeen[t] = true;
+    const e = fromGame(g);
+    if (ok(e)) trendsale.push(e);
+  });
+  // Top Metacritic deals (topMetaSale_ in xbox.gs)
+  const metasale = topMetaSale_(games, psReadJson_("PS_SCORES_FILE_ID", {}), g => g.productId, g => (star(g.productId) || [0, 0])[1], fromGame, ok, N);
   const sections = {
     spotPool: spotPool, spotV: 2,   // spotV 2: the SPOT_TOP most-rated games on sale
     hotPool: hotPool, hotV: 3,   // hotV 3: hotPool_ (most rated, 60%+ off, HOT_MIN_RATINGS)
     popIds: popIds,
     wished: wished,
+    trendsale: trendsale, metasale: metasale,
     popular: trending.map(fromConcept).filter(ok).filter(e => e.price > 0 && !e.f2p).slice(0, N).map(clean),   // paid games only
     bestselling: bestselling.map(fromConcept).filter(ok).filter(e => e.price > 0).slice(0, N).map(clean),
     under1: bargains_(games, 1, fromGame, ok), under5: bargains_(games, 5, fromGame, ok), under10: bargains_(games, 10, fromGame, ok),
