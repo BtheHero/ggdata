@@ -813,8 +813,12 @@ function buildHome_(catalog, dated, gamePass, sales) {
     .filter(id => { const t = editionKey_(row[id][1]); if (xpaSeen[t]) return false; xpaSeen[t] = true; return true; }).slice(0, 30);
   const info = lookupProducts_(Array.from(new Set(coming.concat(added, near, topPaid, mostPlayed, gpIds, wished, xpaNew))));
 
-  const entry = id => {
-    const r = row[id] || [], i = info[id] || {};
+  // a listed game that isn't sold under its own id: the buyable edition of the same game (retailEditions_), its id
+  // and price; the art, dates and Game Pass status stay the listed game's
+  const retail = retailEditions_(catalog);
+  const entry = id0 => {
+    const i = info[id0] || {}, alt = !row[id0] && (i.title || "") ? retail[editionKey_(i.title)] : null;
+    const id = alt && alt !== id0 ? alt : id0, r = row[id] || [];
     return {
       id: id,
       title: i.title || r[1] || "",
@@ -828,12 +832,12 @@ function buildHome_(catalog, dated, gamePass, sales) {
       msrp: Number(r[4]) || 0,
       currency: r[5] || "USD",
       date: i.released || null,
-      gp: gamePass.has(id),
+      gp: gamePass.has(id) || gamePass.has(id0),
       xs: otherSubs_(id),
       low: !!(saleBy[id] && saleBy[id].atLow),
       ends: (saleBy[id] && saleBy[id].saleEnds) || null,
       pc: !!((row[id] || [])[9]) || !!(saleBy[id] && saleBy[id].pc),
-      tiers: tiersFor_(id),
+      tiers: tiersFor_(id).length ? tiersFor_(id) : tiersFor_(id0),
       release: (i.released && Date.parse(i.released) > Date.now() ? i.released : null) || r[10] || null,
       genres: i.genres || [],
       xpa: isXpa_(id) ? 1 : 0,
@@ -1063,6 +1067,22 @@ function editionKey_(t) {
     .replace(/\b(xbox one|xbox series x\|s|xbox series x|windows|for pc|pc|ps4|ps5)\b/gi, "")));
 }
 function norm_(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+// The buyable edition of each game in the full list, by editionKey_: Game Pass lists and upcoming rows sometimes
+// use a store product that isn't sold on its own (the Game Pass version, often part of the retail editions).
+// The pick: a console version over a PC-only one, then the lowest regular price (the standard edition).
+// rows: full list rows [id, title, publisher, price, msrp, currency, image, rank, subs, pc, ...]
+function retailEditions_(rows) {
+  const best = {};
+  rows.forEach(r => {
+    if (!r[0] || !r[1] || !(Number(r[4]) > 0 || Number(r[3]) > 0) || /\b(upgrade|bundle|pack|season pass|soundtrack|dlc)\b/i.test(r[1])) return;
+    const k = editionKey_(r[1]), pc = r[9] || /\(pc\)|\bfor pc\b|\bwindows\b/i.test(r[1]) ? 1 : 0, m = Number(r[4]) || Number(r[3]);
+    const o = best[k];
+    if (!o || pc < o.pc || (pc === o.pc && m < o.m)) best[k] = { id: String(r[0]), pc: pc, m: m };
+  });
+  const out = {};
+  Object.keys(best).forEach(k => { out[k] = best[k].id; });
+  return out;
+}
 function slug_(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
 
 // Also returns the game's screenshots (shots), trailers (videos: [{url, title, poster}], MP4 or HLS) and genres

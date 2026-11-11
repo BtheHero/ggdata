@@ -377,12 +377,11 @@ function gamePagesFor_(pre) {
   if (!ps) { const gpl = psReadJson_("GAMEPASS_FILE_ID", {}); ["coming", "added", "all"].forEach(k => (gpl[k] || []).forEach(e => { if (e && e.id) listed.push(e); })); }
   let unsold = 0, linked = 0;
   // the same game under another store id (Game Pass lists sometimes use one that isn't for sale): that game's page
-  const byTitle = {};
-  cat.forEach(r => { const t = r[0] && r[1] && norm_(cleanTitle_(r[1])); if (t && !byTitle[t]) byTitle[t] = r[0]; });
+  const byTitle = ps ? {} : retailEditions_(cat);
   listed.forEach(e => {
     const id = String(e.id);
     if (!e.title || !e.image || games[id]) return;
-    const same = byTitle[norm_(cleanTitle_(e.title))];
+    const same = byTitle[editionKey_(e.title)];
     if (same && same !== id && games[same] && !games[same].a) { games[id] = { a: same }; linked++; return; }
     const priced = Number(e.price) > 0 || Number(e.msrp) > 0;
     games[id] = {
