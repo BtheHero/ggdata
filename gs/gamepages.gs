@@ -375,10 +375,15 @@ function gamePagesFor_(pre) {
   const listed = [], home = psReadJson_(pre + "HOME_FILE_ID", { sections: {} }).sections || {};
   Object.keys(home).forEach(k => Array.isArray(home[k]) && home[k].forEach(e => { if (e && e.id) listed.push(e); }));
   if (!ps) { const gpl = psReadJson_("GAMEPASS_FILE_ID", {}); ["coming", "added", "all"].forEach(k => (gpl[k] || []).forEach(e => { if (e && e.id) listed.push(e); })); }
-  let unsold = 0;
+  let unsold = 0, linked = 0;
+  // the same game under another store id (Game Pass lists sometimes use one that isn't for sale): that game's page
+  const byTitle = {};
+  cat.forEach(r => { const t = r[0] && r[1] && norm_(cleanTitle_(r[1])); if (t && !byTitle[t]) byTitle[t] = r[0]; });
   listed.forEach(e => {
     const id = String(e.id);
     if (!e.title || !e.image || games[id]) return;
+    const same = byTitle[norm_(cleanTitle_(e.title))];
+    if (same && same !== id && games[same] && !games[same].a) { games[id] = { a: same }; linked++; return; }
     const priced = Number(e.price) > 0 || Number(e.msrp) > 0;
     games[id] = {
       t: e.title, p: e.publisher || "", i: e.image, q: e.sq || undefined, pr: Number(e.price) || 0, m: Number(e.msrp) || Number(e.price) || 0, c: e.currency || "USD",
@@ -388,7 +393,7 @@ function gamePagesFor_(pre) {
     };
     unsold++;
   });
-  console.log((ps ? "PlayStation" : "Xbox") + " pages for listed games not in the full list: " + unsold);
+  console.log((ps ? "PlayStation" : "Xbox") + " pages for listed games not in the full list: " + unsold + " (and " + linked + " sent to the same game's page)");
   // Xbox add-ons on sale (looked up by exportXboxAddOns, XboxAddOns.gs): a page each, like PlayStation's
   if (!ps) (psReadJson_("XADDONS_FILE_ID", { games: [] }).games || []).forEach(g => {
     const id = g.productId;
