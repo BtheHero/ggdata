@@ -12,7 +12,9 @@ const pages = [
   ["PS Cyberpunk 2077", "store.playstation.com/en-us/concept/10000590"]
 ];
 for (const [name, url] of pages) {
-  const rows = JSON.parse(get("https://web.archive.org/cdx/search/cdx?url=" + encodeURIComponent(url) + "*&output=json&fl=timestamp,original&filter=statuscode:200&limit=2000") || "[]").slice(1);
+  const raw = get("https://web.archive.org/cdx/search/cdx?url=" + encodeURIComponent(url) + "*&output=json&fl=timestamp,original&filter=statuscode:200&limit=2000");
+  let rows = [];
+  try { rows = JSON.parse(raw || "[]").slice(1); } catch (e) { console.log(name + ": the archive answered: " + raw.slice(0, 200).replace(/\s+/g, " ")); continue; }
   const days = new Set(rows.map(r => r[0].slice(0, 8)));
   const months = new Set(rows.map(r => r[0].slice(0, 6)));
   let sample = "";
