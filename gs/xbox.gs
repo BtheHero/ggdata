@@ -917,9 +917,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
 
   // Game Pass tab: every Game Pass game, the 15 newest additions, and everything announced as coming
   const gpAll = gpIds.filter(id => row[id] || info[id]).sort((a, b) => (row[a] ? row[a][7] || 1e9 : 2e9) - (row[b] ? row[b][7] || 1e9 : 2e9)).map(entry).filter(ok);
-  // Coming to Game Pass: Microsoft's list sometimes keeps games that came out long ago; those released more than
-  // 30 days ago are left out (a game coming to Game Pass is new, or has a date)
-  const gpComing = coming.filter(id => !(time(id) && time(id) < now - 30 * 864e5)).slice().sort((a, b) => (time(b) > now) - (time(a) > now) || (time(a) > now ? time(a) - time(b) : time(b) - time(a))).map(entry).filter(ok);
+  const gpComing = coming.slice().sort((a, b) => (time(b) > now) - (time(a) > now) || (time(a) > now ? time(a) - time(b) : time(b) - time(a))).map(entry).filter(ok);
   const gpData = { updatedAt: new Date().toISOString(), all: gpAll, added: added.map(entry).filter(ok), coming: gpComing };
   saveJsonToDrive_(gpData, "xbox_gamepass.json", "GAMEPASS_FILE_ID");
   Logger.log("Game Pass lists: all " + gpAll.length + ", added " + gpData.added.length + ", coming " + gpComing.length);
