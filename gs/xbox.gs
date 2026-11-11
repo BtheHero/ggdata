@@ -933,7 +933,8 @@ function topMetaSale_(sales, scores, idOf, nRatings, toEntry, ok, n) {
   const seen = {};
   return sales.filter(g => sc(g) && sc(g)[0] >= 80 && Number(g.msrp) > Number(g.price))
     .sort((a, b) => sc(b)[0] - sc(a)[0] || nRatings(b) - nRatings(a))
-    .filter(g => { const t = editionKey_(g.title); if (seen[t]) return false; seen[t] = true; return true; })
+    // one per game: editions share the Metacritic page (slug), or at least the base title
+    .filter(g => { const t = editionKey_(g.title), m = "mc:" + (sc(g)[1] || t); if (seen[t] || seen[m]) return false; seen[t] = seen[m] = true; return true; })
     .map(g => Object.assign(toEntry(g), { mc: sc(g)[0] })).filter(ok).slice(0, n);
 }
 
