@@ -4,13 +4,14 @@
 //   scores Metacritic scores (both stores)
 //   pages  Xbox add-ons on sale, then the Xbox game pages
 //   alladdons  every Xbox add-on (part of the games each day)
+//   ps, psmorning, psfill, pspages  PlayStation: full export with regions, morning run, publishers/ratings, game pages
 // The files it reads and writes are in data/ (the workflow downloads them from the bucket first and uploads them after).
 const rt = require("./runtime/appsscript");
 const job = process.argv[2];
 const t0 = Date.now();
 const secs = () => Math.round((Date.now() - t0) / 1000) + " s";
 
-rt.load(["gs/common.gs", "gs/xbox.gs", "gs/addons.gs", "gs/gamepages.gs"], "global.__XBOX = { REGIONS: REGIONS };");
+rt.load(["gs/common.gs", "gs/xbox.gs", "gs/addons.gs", "gs/gamepages.gs", "gs/ps.gs"], "global.__XBOX = { REGIONS: REGIONS, PS_REGIONS: PS_REGIONS };");
 const fs = require("fs"), path = require("path");
 
 // Each game's price in every region, for the game pages' regional price table: data/compare/xbox-<n>.json,
@@ -40,7 +41,62 @@ function buildCompare() {
   console.log("Compare: " + Object.keys(games).length + " games in " + Object.keys(currency).length + " regions");
 }
 
+// PlayStation's price in every region for each game page (concepts, and deals by their own id):
+// data/compare/ps-<n>.json, same shape as Xbox's. A deal is matched across regions by its key (psDealKey_).
+function buildPsCompare() {
+  const dir = rt.DATA_DIR, read = f => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch (e) { return null; } };
+  const sales = read("ps_sales.json"), cat = read("ps_catalog.json");
+  if (!sales || !cat) { console.log("PlayStation compare: no deals or full game list yet"); return; }
+  const regions = {}, currency = { US: "USD" };
+  Object.keys(__XBOX.PS_REGIONS).forEach(code => { const f = read("ps_prices_" + code + ".json"); if (f && f.prices) { regions[code] = f.prices; currency[code] = f.currency; } });
+  const games = {};
+  const add = (id, key, price, msrp) => {
+    const g = { US: [Number(price) || 0, Number(msrp) || Number(price) || 0] };
+    Object.keys(regions).forEach(code => { const p = regions[code][key]; if (p) g[code] = [p[0], p[1]]; });
+    games[id] = g;
+  };
+  (cat.games || []).forEach(r => { if (r[0]) add(String(r[0]), String(r[0]), r[3], r[4]); });
+  (sales.games || []).forEach(g => { if (g.productId) add(g.productId, g.key || g.productId, g.price, g.msrp); });
+  let rates = null;
+  try { rates = JSON.parse(UrlFetchApp.fetch("https://open.er-api.com/v6/latest/USD", { muteHttpExceptions: true }).getContentText()).rates; } catch (e) {}
+  if (!rates) { const old = read("compare/ps-0.json"); rates = old && old.rates; }
+  if (!rates) { console.log("PlayStation compare: no exchange rates"); return; }
+  const shards = Array.from({ length: 64 }, () => ({}));
+  Object.keys(games).forEach(id => { shards[shardOf_(id)][id] = games[id]; });
+  fs.mkdirSync(path.join(dir, "compare"), { recursive: true });
+  const now = new Date().toISOString();
+  shards.forEach((g, n) => fs.writeFileSync(path.join(dir, "compare", "ps-" + n + ".json"), JSON.stringify({ updatedAt: now, currency, rates, games: g })));
+  console.log("PlayStation compare: " + Object.keys(games).length + " games in " + Object.keys(currency).length + " regions");
+}
+
 const jobs = {
+  // PlayStation: deals, home page, history (exportPlayStation_), the full game list, then every other region
+  ps() {
+    exportPlayStation_({});
+    console.log("== PlayStation US done (" + secs() + ")");
+    try { psExportCatalog_(); } catch (e) { console.log("Full game list failed: " + e.message); process.exitCode = 1; }
+    console.log("== full game list done (" + secs() + ")");
+    Object.keys(__XBOX.PS_REGIONS).forEach(code => {
+      let ok = false;
+      try { ok = exportPsRegion_(code, Date.now()); } catch (e) { console.log(code + " failed: " + e.message); }
+      console.log("== " + code + (ok ? " done" : " NOT updated") + " (" + secs() + ")");
+    });
+    try { buildPsCompare(); } catch (e) { console.log("Compare failed: " + e.message); }
+  },
+  // the lighter morning run for new sales: US deals, home page and full game list
+  psmorning() {
+    exportPlayStation_({ maxLookups: 800 });
+    try { psExportCatalog_(); } catch (e) { console.log("Full game list failed: " + e.message); process.exitCode = 1; }
+    try { buildPsCompare(); } catch (e) { console.log("Compare failed: " + e.message); }
+  },
+  // publishers, store ratings and descriptions, looked up a part at a time
+  psfill() { psFillPublishers(); },
+  // PlayStation game pages
+  pspages() {
+    const n = gamePagesFor_("PS_");
+    console.log("== PlayStation game pages: " + n + " games (" + secs() + ")");
+    if (!n) process.exitCode = 1;
+  },
   // Metacritic scores of both stores' visible games (fillScores in gs/xbox.gs): scores.json and ps_scores.json.
   // PlayStation's game lists come from the site's data service (seed.js copies them to SRC_DIR).
   scores() {

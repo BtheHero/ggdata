@@ -1,0 +1,40 @@
+# PlayStation: the full export with the regions (about 3 AM Pacific), and a lighter run for new sales (about 9 AM Pacific),
+# then the game pages.
+name: PlayStation
+on:
+  schedule:
+    - cron: "11 11 * * *"
+    - cron: "7 17 * * *"
+  workflow_dispatch:
+concurrency:
+  group: data-files   # jobs never write the same files at the same time
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SEED_PS: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Download the saved files
+        run: aws s3 sync s3://ggdata/data data --endpoint-url "$R2" --only-show-errors --exclude "media/*" --exclude "compare/*" --exclude "xbox_games_*" --exclude "ps_games_*"
+      - name: Copy files from the site
+        env:
+          SOURCE_API: ${{ secrets.SOURCE_API }}
+        run: node seed.js
+      - name: Run the export
+        run: if [ "$(date -u +%H)" -ge 15 ] && [ "${{ github.event_name }}" = "schedule" ]; then node run.js psmorning; else node run.js ps; fi
+      - name: Game pages
+        if: always()
+        run: node run.js pspages
+      - name: Upload the files
+        if: always()
+        run: aws s3 sync data s3://ggdata/data --endpoint-url "$R2" --content-type application/json --only-show-errors

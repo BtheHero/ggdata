@@ -10,6 +10,12 @@ const FILES = [   // [property key, file name, query, refresh every run]
   ["SCORES_FILE_ID", "scores.json", "file=scores"],
   ["PS_SCORES_FILE_ID", "ps_scores.json", "file=scores&platform=ps"],
 ];
+// PlayStation jobs (SEED_PS=1): the files they build on, copied once from the site's data service
+if (process.env.SEED_PS) FILES.push(
+  ["PS_HISTORY_FILE_ID", "ps_history.json", "file=history&platform=ps"],
+  ["PS_CACHE_FILE_ID", "ps_cache.json", "file=pscache&platform=ps"],   // publishers, ratings, edition prices looked up so far
+  ["PS_DESC_FILE_ID", "ps_desc.json", "file=psdesc&platform=ps"]      // descriptions found so far
+);
 if (!api) {
   const missing = FILES.filter(f => !f[3] && !fs.existsSync(path.join(dir, f[1]))).map(f => f[1]);
   if (missing.length) { console.log("SOURCE_API isn't set, and " + missing.join(", ") + " must be copied first."); process.exit(1); }

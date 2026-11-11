@@ -1,5 +1,5 @@
-// Xbox game pages (data/xbox_games_<n>.json), from the files the other jobs save. Run by run.js (job "pages").
-// The PlayStation parts stay unused here until PlayStation moves.
+// Game pages of both stores (data/xbox_games_<n>.json, data/ps_games_<n>.json), from the files the other jobs save.
+// Run by run.js (jobs "pages" and "pspages").
 // ---------- Game pages (gamedealtrack.com/game/...) ----------
 // A page for every game. The site's Cloudflare function builds each page from small "shard" files written here:
 // every game of a platform goes in one of GAME_SHARDS files by its id (shardOf_), so a page only needs one small file.
@@ -255,16 +255,10 @@ function shardOf_(id) {
   return h % GAME_SHARDS;
 }
 
-// Xbox first, then PlayStation in a run of its own right after (both together take longer than the 6 minutes
-// Apps Script allows a run). Run either one by hand too: exportXboxGamePages, exportPsGamePages.
+// PlayStation's game pages. Xbox's are built by the data jobs on GitHub (ggdata) and read by the site from its R2
+// bucket, so exportGamePages (the twice-daily trigger) only does PlayStation now. exportXboxGamePages still works by hand.
 function exportGamePages() {
-  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === "exportPsGamePages").forEach(t => ScriptApp.deleteTrigger(t));
-  ScriptApp.newTrigger("exportPsGamePages").timeBased().after(6 * 60 * 1000).create();   // safety net if this run is cut off
-  try { exportXboxGamePages(); }
-  finally {
-    ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === "exportPsGamePages").forEach(t => ScriptApp.deleteTrigger(t));
-    ScriptApp.newTrigger("exportPsGamePages").timeBased().after(1000).create();
-  }
+  exportPsGamePages();
 }
 function exportXboxGamePages() { gamePagesRun_("", "Xbox"); }
 function exportPsGamePages() {
@@ -291,19 +285,28 @@ function createGamePagesTrigger() {
 // mc [Metascore, Metacritic slug], pc PC only, h price history [[yyyymmdd, price]...], k popularity rank,
 // pi a PlayStation game's main product id, d store description}.
 // PlayStation product ids that belong to a whole-game page get {a: that page's id}.
+function siteScores_(ps) {
+  try {
+    const r = UrlFetchApp.fetch("https://gamedealtrack.com/api?file=scores" + (ps ? "&platform=ps" : ""), { muteHttpExceptions: true });
+    const d = r.getResponseCode() === 200 ? JSON.parse(r.getContentText()) : null;
+    return d && !d.error && Object.keys(d).length > 50 ? d : null;
+  } catch (e) { return null; }
+}
+
 function gamePagesFor_(pre) {
   const ps = pre === "PS_";
   const cat = psReadJson_(pre + "CATALOG_FILE_ID", { games: [] }).games || [];
   const sales = psReadJson_(pre + "JSON_FILE_ID", { games: [] }).games || [];
-  const scores = psReadJson_(pre + "SCORES_FILE_ID", {});
+  // Metacritic scores: looked up by the data jobs on GitHub now (ggdata), read through the site; the old copy if that fails
+  const scores = psReadJson_(pre + "SCORES_FILE_ID", {});   // here the scores job saves them next to the other files
   const hist = (psReadJson_(pre + "HISTORY_FILE_ID", { h: {} }) || {}).h || {};
   const ratings = psReadJson_(ps ? "PS_RATINGS_FILE_ID" : "XRATINGS_FILE_ID", {});
   // genres: Xbox's come with the store listing (xbox_genres.json), PlayStation's from the details the export looked up
   const xGenres = ps ? {} : psReadJson_("XGENRES_FILE_ID", {});
   const psCache = ps ? psReadJson_("PS_CACHE_FILE_ID", { details: {} }) : {};
   const psDetails = psCache.details || {};
-  // store descriptions: Xbox's from the store listing (xbox_desc.json), PlayStation's from the store pages (ps_cache.json)
-  const descs = ps ? (psCache.desc || {}) : psReadJson_("XDESC_FILE_ID", {});
+  // store descriptions: Xbox's from the store listing (xbox_desc.json), PlayStation's from the store pages (ps_desc.json)
+  const descs = ps ? Object.assign({}, psCache.desc || {}, psReadJson_("PS_DESC_FILE_ID", {})) : psReadJson_("XDESC_FILE_ID", {});
   const descOf = (...ids) => {
     for (const id of ids) { const d = id && (descs[id] || descs[String(id).toUpperCase()]); if (d) return d; }
     return undefined;
