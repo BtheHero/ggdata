@@ -14,10 +14,10 @@ const FILES = [   // [property key, file name, query, refresh every run]
 if (process.env.SEED_PS) FILES.push(
   ["PS_HISTORY_FILE_ID", "ps_history.json", "file=history&platform=ps"],
   ["PS_CACHE_FILE_ID", "ps_cache.json", "file=pscache&platform=ps"],   // publishers, ratings, edition prices looked up so far
-  ["PS_DESC_FILE_ID", "ps_desc.json", "file=psdesc&platform=ps"]      // descriptions found so far
+  ["PS_DESC_FILE_ID", "ps_desc.json", "file=psdesc&platform=ps", false, true]   // descriptions found so far (optional)
 );
 if (!api) {
-  const missing = FILES.filter(f => !f[3] && !fs.existsSync(path.join(dir, f[1]))).map(f => f[1]);
+  const missing = FILES.filter(f => !f[3] && !f[4] && !fs.existsSync(path.join(dir, f[1]))).map(f => f[1]);
   if (missing.length) { console.log("SOURCE_API isn't set, and " + missing.join(", ") + " must be copied first."); process.exit(1); }
   console.log("SOURCE_API isn't set: nothing to copy.");
   process.exit(0);
@@ -26,7 +26,7 @@ fs.mkdirSync(dir, { recursive: true });
 const pf = path.join(dir, "_props.json");
 let props = {};
 try { props = JSON.parse(fs.readFileSync(pf, "utf8")); } catch (e) {}
-FILES.forEach(([key, name, q, refresh]) => {
+FILES.forEach(([key, name, q, refresh, optional]) => {
   if (!refresh && fs.existsSync(path.join(dir, name))) return;
   try {
     const body = execFileSync("curl", ["-sSL", "--max-time", "120", api + "?" + q], { maxBuffer: 1 << 30, encoding: "utf8" });
@@ -37,7 +37,7 @@ FILES.forEach(([key, name, q, refresh]) => {
     console.log("Copied " + name + " (" + Math.round(body.length / 1024) + " KB)");
   } catch (e) {
     console.log("Couldn't copy " + name + ": " + e.message + (refresh ? " (keeping the previous copy)" : ""));
-    if (!refresh) process.exitCode = 1;   // the price history must not start over
+    if (!refresh && !optional) process.exitCode = 1;   // the price history must not start over
   }
 });
 fs.writeFileSync(pf, JSON.stringify(props, null, 1));
