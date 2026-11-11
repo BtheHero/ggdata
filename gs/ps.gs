@@ -510,7 +510,7 @@ function psFillPublishers() {
     const got = allow ? psStarRatings_(ids, cache, startTime + 15 * 60 * 1000, allow) : false;
     if (!allow) console.log("Store ratings: today's request budget is used up, trying again next run");
     let n = 0;
-    Object.keys(home.sections).forEach(k => (home.sections[k] || []).forEach(e => {
+    Object.keys(home.sections).forEach(k => Array.isArray(home.sections[k]) && home.sections[k].forEach(e => {
       const st = cache.stars && cache.stars[key(e)];
       if (st && (e.rc !== st[1] || e.ra !== st[0])) { e.ra = st[0]; e.rc = st[1]; n++; }
     }));
