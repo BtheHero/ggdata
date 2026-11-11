@@ -6,7 +6,9 @@ const api = process.env.SOURCE_API, dir = path.resolve(process.env.DATA_DIR || "
 const FILES = [   // [property key, file name, query, refresh every run]
   ["HISTORY_FILE_ID", "xbox_history.json", "file=history"],
   ["WISHCOUNTS_FILE_ID", "wishcounts.json", "file=wishcounts", true],
-  ["SCORES_FILE_ID", "scores.json", "file=scores", true],   // Metacritic scores (looked up by the site's data service)
+  // Metacritic scores: copied once, then kept up to date here (job "scores")
+  ["SCORES_FILE_ID", "scores.json", "file=scores"],
+  ["PS_SCORES_FILE_ID", "ps_scores.json", "file=scores&platform=ps"],
 ];
 if (!api) {
   const missing = FILES.filter(f => !f[3] && !fs.existsSync(path.join(dir, f[1]))).map(f => f[1]);

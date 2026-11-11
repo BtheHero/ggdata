@@ -1,6 +1,7 @@
 // Runs one job: node run.js <job>
 //   xbox   the Xbox US export, then every other region
 //   media  screenshots, trailers, key art and genres of every game
+//   scores Metacritic scores (both stores)
 //   pages  Xbox add-ons on sale, then the Xbox game pages
 //   alladdons  every Xbox add-on (part of the games each day)
 // The files it reads and writes are in data/ (the workflow downloads them from the bucket first and uploads them after).
@@ -40,6 +41,34 @@ function buildCompare() {
 }
 
 const jobs = {
+  // Metacritic scores of both stores' visible games (fillScores in gs/xbox.gs): scores.json and ps_scores.json.
+  // PlayStation's game lists come from the site's data service (seed.js copies them to SRC_DIR).
+  scores() {
+    const src = path.resolve(process.env.SRC_DIR || "src"), dataDir = rt.DATA_DIR;
+    const read = f => { try { return JSON.parse(fs.readFileSync(f, "utf8")); } catch (e) { return null; } };
+    const psFiles = { PS_HOME_FILE_ID: "ps_home.json", PS_JSON_FILE_ID: "ps_sales.json", PS_CATALOG_FILE_ID: "ps_catalog.json" };
+    const own = global.psReadJson_;
+    global.psReadJson_ = (key, fallback) => psFiles[key] ? (read(path.join(src, psFiles[key])) || fallback) : own(key, fallback);
+    // first run: start from the scores the site's data service already found (titles from the game lists)
+    if (!fs.existsSync(path.join(dataDir, "metacritic.json"))) {
+      const store = {}, today = Number(new Date().toISOString().slice(0, 10).replace(/-/g, ""));
+      const titles = {};
+      [[read(path.join(dataDir, "xbox_catalog.json")), read(path.join(dataDir, "xbox_sales.json"))],
+       [read(path.join(src, "ps_catalog.json")), read(path.join(src, "ps_sales.json"))]].forEach(([cat, sales]) => {
+        ((cat && cat.games) || []).forEach(r => { titles[r[0]] = r[1]; if (r[13]) titles[r[13]] = r[1]; });
+        ((sales && sales.games) || []).forEach(g => { titles[g.productId] = g.title; });
+      });
+      [read(path.join(dataDir, "scores.json")), read(path.join(dataDir, "ps_scores.json"))].forEach(m => Object.keys(m || {}).forEach(id => {
+        const k = titles[id] && scoreKey_(titles[id]);
+        if (k && !store[k]) store[k] = [m[id][0], m[id][1], today];
+      }));
+      fs.writeFileSync(path.join(dataDir, "metacritic.json"), JSON.stringify(store));
+      PropertiesService.getScriptProperties().setProperty("METACRITIC_FILE_ID", "metacritic.json");
+      console.log("Metacritic: started from " + Object.keys(store).length + " known scores");
+    }
+    fillScores();
+  },
+
   // Xbox add-ons on sale (gs/addons.gs), then the Xbox game pages (gs/gamepages.gs)
   pages() {
     try { exportXboxAddOns(); } catch (e) { console.log("Add-ons failed: " + e.message); }

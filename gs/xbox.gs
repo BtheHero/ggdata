@@ -1072,7 +1072,7 @@ function quotaHit_(e) { return /too many times/i.test(String((e && e.message) ||
 // ({title key: [score, slug, day]}, score 0 = not on Metacritic). It then writes a small map per platform,
 // scores.json and ps_scores.json ({game id: [score, slug]}), which the site loads so a pop-up shows the
 // score straight away. Read with doGet &file=scores (and &platform=ps).
-const SCORE_MAX = 300;   // Metacritic searches per run (about 30 s), within the daily budget (see fetchBudget_)
+const SCORE_MAX = 1200;  // Metacritic searches per run (about 2 minutes; no daily budget on GitHub)
 
 
 // The same game on Xbox and PlayStation, in any edition, gets the same key
@@ -1113,7 +1113,7 @@ function fillScores() {
   const games = pre => {
     const out = [], home = psReadJson_(pre + "HOME_FILE_ID", { sections: {} }), sales = psReadJson_(pre + "JSON_FILE_ID", { games: [] });
     const cat = psReadJson_(pre + "CATALOG_FILE_ID", { games: [] });
-    Object.keys(home.sections || {}).forEach(k => (home.sections[k] || []).forEach(e => { out.push([e.id, e.title]); if (e.pid) out.push([e.pid, e.title]); }));
+    Object.keys(home.sections || {}).forEach(k => Array.isArray(home.sections[k]) && home.sections[k].forEach(e => { if (e && e.id) { out.push([e.id, e.title]); if (e.pid) out.push([e.pid, e.title]); } }));
     (sales.games || []).slice().sort((a, b) => (a.rank || 1e9) - (b.rank || 1e9)).forEach(g => out.push([g.productId, g.title]));
     (cat.games || []).slice(0, 1000).forEach(r => { out.push([r[0], r[1]]); if (r[13]) out.push([r[13], r[1]]); });
     return out.filter(x => x[0] && x[1]);
@@ -1134,7 +1134,7 @@ function fillScores() {
   let found = 0, sent = 0;
   const max = Math.min(SCORE_MAX, fetchBudget_(0));
   if (!max) console.log("Metacritic: today's request budget is used up, trying again next run");
-  for (let i = 0; i < Math.min(need.length, max) && Date.now() - start < 4 * 60 * 1000; i += 5) {
+  for (let i = 0; i < Math.min(need.length, max) && Date.now() - start < RUN_LIMIT_MS; i += 5) {
     if (i) Utilities.sleep(1000);
     const chunk = need.slice(i, Math.min(i + 5, max));
     let res = [];
