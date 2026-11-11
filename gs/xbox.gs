@@ -6,10 +6,59 @@ const JSON_FILE_NAME = "xbox_sales.json";
 // Optional extra query params for the browse request (e.g. a sort order), like "&orderby=..."
 const EXTRA_QUERY = "";
 
+// ---------- Never replace good data with worse ----------
+// A failed or partial lookup (a store, Metacritic, a page that didn't answer) must not wipe what the site shows.
+// Every save goes through keepGoodData_ first:
+//  - lists (deals, full game lists): a new list less than half the size of the saved one isn't saved
+//  - lookup files (descriptions, release dates, ratings, genres, Metacritic scores): the new results are added to
+//    the saved ones, so nothing is lost because a lookup failed this time
+//  - game pages: a game keeps its saved description, scores, rating, genres, release date, art and price history
+//    when the new data lacks them; a much smaller set of pages isn't saved
+//  - home pages: a row that comes back empty keeps its saved games
+// Returns the data to save (possibly completed), or null to keep the saved file as it is.
+const KEEP_LISTS = /^(PS_)?(JSON|CATALOG)_FILE_ID$/;
+const KEEP_MERGE = /^(XDESC|XRELEASE|XRATINGS|XGENRES|SCORES|PS_SCORES|PS_DESC|PS_RATINGS)_FILE_ID$/;
+const KEEP_SHARDS = /^(PS_)?SHARD_\d+_FILE_ID$/;
+const KEEP_HOME = /^(PS_)?HOME_FILE_ID$/;
+const KEEP_GAME_FIELDS = ["d", "mc", "ra", "g", "r", "q", "i", "h", "p", "u"];
+function keepGoodData_(data, propKey) {
+  if (!data || typeof data !== "object") return data;
+  const kind = KEEP_LISTS.test(propKey) ? "list" : KEEP_MERGE.test(propKey) ? "merge" : KEEP_SHARDS.test(propKey) ? "shard" : KEEP_HOME.test(propKey) ? "home" : "";
+  if (!kind) return data;
+  const old = psReadJson_(propKey, null);
+  if (!old || typeof old !== "object") return data;
+  const empty = v => v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length);
+  if (kind === "list") {
+    const n = (data.games || []).length, o = (old.games || []).length;
+    if (o > 100 && n < o * 0.5) { Logger.log(propKey + ": " + n + " games instead of " + o + ", keeping the saved file"); return null; }
+    return data;
+  }
+  if (kind === "merge") return Object.assign({}, old, data);
+  if (kind === "home") {
+    const os = old.sections || {}, ds = data.sections = data.sections || {};
+    Object.keys(os).forEach(k => { if (Array.isArray(os[k]) && os[k].length && empty(ds[k])) ds[k] = os[k]; });
+    return data;
+  }
+  // game pages
+  const og = old.games || {}, ng = data.games || {}, on = Object.keys(og).length, nn = Object.keys(ng).length;
+  if (on > 50 && nn < on * 0.7) { Logger.log(propKey + ": " + nn + " games instead of " + on + ", keeping the saved file"); return null; }
+  Object.keys(ng).forEach(id => {
+    const o = og[id], g = ng[id];
+    if (!o || !g || g.a) return;
+    KEEP_GAME_FIELDS.forEach(f => { if (empty(g[f]) && !empty(o[f])) g[f] = o[f]; });
+  });
+  return data;
+}
+
 // Overwrites the same Drive file every time (no duplicates).
 function saveJsonToDrive_(data, name, propKey) {
   name = name || JSON_FILE_NAME;
   propKey = propKey || "JSON_FILE_ID";
+  data = keepGoodData_(data, propKey);
+  if (data === null) {   // keep the saved file
+    const kept = PropertiesService.getScriptProperties().getProperty(propKey);
+    return DriveApp.getFileById(kept);
+  }
   if ((propKey === "JSON_FILE_ID" || propKey === "PS_JSON_FILE_ID") && data && data.games) saveOnSale_(data.games, propKey === "PS_JSON_FILE_ID");
   const props = PropertiesService.getScriptProperties();
   const content = JSON.stringify(data);
