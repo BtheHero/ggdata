@@ -820,7 +820,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
     const i = info[id0] || {}, alt = !row[id0] && (i.title || "") ? retail[editionKey_(i.title)] : null;
     const id = alt && alt !== id0 ? alt : id0, r = row[id] || [];
     return {
-      id: id,
+      id: id, lid: id !== id0 ? id0 : undefined,   // lid: the id the list had (its old links go to this page)
       title: i.title || r[1] || "",
       publisher: i.publisher || r[2] || "",
       image: shortImg_(i.image) || r[6] || null,

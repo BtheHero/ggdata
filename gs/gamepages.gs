@@ -380,6 +380,7 @@ function gamePagesFor_(pre) {
   const byTitle = ps ? {} : retailEditions_(cat);
   listed.forEach(e => {
     const id = String(e.id);
+    if (e.lid && !games[e.lid] && games[id] && !games[id].a) { games[e.lid] = { a: id }; linked++; }   // the list's own id: here
     if (!e.title || !e.image || games[id]) return;
     const same = byTitle[editionKey_(e.title)];
     if (same && same !== id && games[same] && !games[same].a) { games[id] = { a: same }; linked++; return; }
