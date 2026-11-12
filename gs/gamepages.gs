@@ -430,6 +430,20 @@ function gamePagesFor_(pre) {
   });
   console.log((ps ? "PlayStation" : "Xbox") + " add-ons matched to their game: " + attachAddOns_(games, ps ? psAddOnsSeen_(games) : xAddOnsAll_(), ps));
 
+  // older prices read from the Internet Archive (jobs/archive.js) go before the site's own history
+  try {
+    const arch = JSON.parse(DriveApp.getFileById(ps ? "ps_archive.json" : "xbox_archive.json").getBlob().getDataAsString()).h || {};
+    let n = 0;
+    Object.keys(arch).forEach(id => {
+      const g = games[id];
+      if (!g || g.a || !arch[id].length) return;
+      const own = g.h || [], first = own.length ? own[0][0] : 99999999;
+      const pts = arch[id].filter(p => p[0] < first).map(p => [p[0], p[1]]).concat(own)
+        .filter((p, i, a) => i === 0 || Math.abs(a[i - 1][1] - p[1]) > 0.02);   // only the changes
+      if (pts.length > own.length) { g.h = pts; n++; }
+    });
+    console.log((ps ? "PlayStation" : "Xbox") + " games with older prices from the Internet Archive: " + n);
+  } catch (e) { /* no archive file yet */ }
   addRelated_(games, ps);
   // PlayStation: a game's editions are products of its one store page (concept). Their names and prices come from the
   // edition lookups (ps_cache.json eprice); an edition with a page of its own (on sale) links there, the others to the store.
