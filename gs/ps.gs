@@ -53,7 +53,10 @@ function createPsPublisherTrigger() {
 // Store locales of the other regions (same region codes as the Xbox ones in exportXboxCatalog.gs)
 const PS_REGIONS = {
   UK: "en-GB", CA: "en-CA", EU: "en-IE", BR: "pt-BR", AR: "es-AR",
-  TR: "tr-TR", KR: "ko-KR", JP: "ja-JP", IN: "en-IN", AU: "en-AU"
+  TR: "tr-TR", KR: "ko-KR", JP: "ja-JP", IN: "en-IN", AU: "en-AU",
+  // every other country both stores sell in with its own currency (the euro countries are all EU). English stores
+  // where there is one, as deals are matched across regions by title (psDealKey_)
+  MX: "en-MX", CL: "en-CL", CO: "en-CO", PE: "en-PE", CR: "es-CR", PA: "es-PA", GT: "es-GT", EC: "es-EC", UY: "es-UY", PY: "es-PY", BO: "es-BO", SV: "es-SV", HN: "es-HN", NI: "es-NI", PL: "en-PL", CZ: "en-CZ", HU: "en-HU", RO: "en-RO", SE: "en-SE", NO: "en-NO", DK: "en-DK", CH: "de-CH", IS: "en-IS", UA: "uk-UA", IL: "en-IL", NZ: "en-NZ", SG: "en-SG", HK: "en-HK", TW: "en-TW", MY: "en-MY", TH: "en-TH", ID: "en-ID", ZA: "en-ZA", SA: "en-SA", AE: "en-AE", QA: "en-QA", KW: "en-KW", BH: "en-BH", OM: "en-OM"
 };
 // Key that matches the same game edition across regions. Product ids differ per region (even the title id part),
 // so deals are matched on title + edition type + platforms. Concept ids are the same everywhere and are used as they are.

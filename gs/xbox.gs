@@ -559,7 +559,10 @@ function shortImg_(u) {
 // US is handled by exportXboxCatalog. EU uses Ireland (English titles, euro prices).
 const REGIONS = {
   US: "en-US", UK: "en-GB", CA: "en-CA", EU: "en-IE", BR: "pt-BR", AR: "es-AR",
-  TR: "tr-TR", KR: "ko-KR", JP: "ja-JP", IN: "en-IN", AU: "en-AU"
+  TR: "tr-TR", KR: "ko-KR", JP: "ja-JP", IN: "en-IN", AU: "en-AU",
+  // every other country both stores sell in with its own currency (the euro countries are all EU), in English:
+  // the prices are matched by product id, and English names read better for the games only on sale there
+  MX: "en-MX", CL: "en-CL", CO: "en-CO", PE: "en-PE", CR: "en-CR", PA: "en-PA", GT: "en-GT", EC: "en-EC", UY: "en-UY", PY: "en-PY", BO: "en-BO", SV: "en-SV", HN: "en-HN", NI: "en-NI", PL: "en-PL", CZ: "en-CZ", HU: "en-HU", RO: "en-RO", SE: "en-SE", NO: "en-NO", DK: "en-DK", CH: "en-CH", IS: "en-IS", UA: "en-UA", IL: "en-IL", NZ: "en-NZ", SG: "en-SG", HK: "en-HK", TW: "en-TW", MY: "en-MY", TH: "en-TH", ID: "en-ID", ZA: "en-ZA", SA: "en-SA", AE: "en-AE", QA: "en-QA", KW: "en-KW", BH: "en-BH", OM: "en-OM"
 };
 function exportUK() { exportRegion_("UK"); }
 function exportCA() { exportRegion_("CA"); }
