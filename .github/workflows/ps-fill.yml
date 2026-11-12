@@ -5,7 +5,7 @@ on:
     - cron: "53 */4 * * *"
   workflow_dispatch:
 concurrency:
-  group: data-files   # jobs never write the same files at the same time
+  group: ps-files   # jobs that write the same files wait for each other (the others run alongside: each uploads only what it changed)
   cancel-in-progress: false
 jobs:
   run:
@@ -24,6 +24,8 @@ jobs:
           node-version: 24
       - name: Download the saved files
         run: aws s3 sync s3://ggdata/data data --endpoint-url "$R2" --only-show-errors --exclude "media/*" --exclude "compare/*" --exclude "xbox_games_*" --exclude "ps_games_*"
+      - name: Note what was downloaded
+        run: node tools/upload.js snapshot
       - name: Copy files from the site
         env:
           SOURCE_API: ${{ secrets.SOURCE_API }}
@@ -32,4 +34,4 @@ jobs:
         run: node run.js psfill
       - name: Upload the files
         if: always()
-        run: aws s3 sync data s3://ggdata/data --endpoint-url "$R2" --content-type application/json --only-show-errors
+        run: node tools/upload.js push   # only the files this job changed
