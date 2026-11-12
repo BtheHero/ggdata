@@ -7,6 +7,11 @@ on:
     - cron: "17 0 * * *"
     - cron: "17 9 * * *"
   workflow_dispatch:
+    inputs:
+      pages_only:
+        description: "Only rebuild the game pages (skip the store export)"
+        type: boolean
+        default: false
 concurrency:
   group: xbox-files   # jobs that write the same files wait for each other (the others run alongside: each uploads only what it changed)
   cancel-in-progress: false
@@ -33,6 +38,7 @@ jobs:
           SOURCE_API: ${{ secrets.SOURCE_API }}
         run: node seed.js
       - name: Run the export
+        if: ${{ !inputs.pages_only }}
         run: node run.js xbox
       - name: Add-ons on sale and the game pages
         if: always()

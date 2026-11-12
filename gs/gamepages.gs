@@ -162,7 +162,7 @@ function addRelated_(games, ps) {
   const byPop = (a, b) => b.pop - a.pop;
 
   // description words: tf-idf vectors (unit length) of the REL_TERMS most distinctive words of each game
-  const df = {};
+  const df = Object.create(null);
   list.forEach(x => {
     x.tok = relWords_(x.g.d);
     const seen = {};
@@ -179,7 +179,7 @@ function addRelated_(games, ps) {
     delete x.tok;
   });
   // genre weights: rarer genres say more
-  const gdf = {};
+  const gdf = Object.create(null);
   list.forEach(x => x.gen.forEach(gn => { gdf[gn] = (gdf[gn] || 0) + 1; }));
   const gw = gn => Math.log(N / (gdf[gn] || 1)) + 0.1;
   list.forEach(x => { x.glen = Math.sqrt(x.gen.reduce((s, gn) => s + gw(gn) * gw(gn), 0)) || 1; });
@@ -187,7 +187,7 @@ function addRelated_(games, ps) {
 
   // indexes: each description word (its best-known games), series (first two words), each genre, each publisher
   const idx = (key, max) => {
-    const m = {};
+    const m = Object.create(null);
     list.forEach(x => { if (!x.extra) key(x).forEach(k => { if (k) (m[k] = m[k] || []).push(x); }); });
     Object.keys(m).forEach(k => { m[k].sort(byPop); if (max) m[k] = m[k].slice(0, max); });
     return m;
@@ -223,7 +223,7 @@ function addRelated_(games, ps) {
       scored.push([s, y, ser]);
     });
     scored.sort((a, b) => b[0] - a[0]);
-    const seen = {}, out = [];
+    const seen = Object.create(null), out = [];
     let fromSeries = 0;
     for (const [s, y, ser] of scored) {
       if (seen[y.ed] || seen[y.ed2]) continue;
@@ -237,7 +237,7 @@ function addRelated_(games, ps) {
 
   // Other editions of the same game (Standard, Deluxe, Ultimate, the PC version…), cheapest first: ed
   const NOT_EDITION = /\b(add-?ons?|upgrade|season pass|dlc|expansion pass|soundtrack|launcher|credits|currency|points|coins|virtual currency|costume|skins?|purchase bonus|pre-?order bonus)\b/i;
-  const byKey = {};
+  const byKey = Object.create(null);   // (no built-in keys: a game called "Constructor" is just a name)
   list.forEach(x => { if (!x.g.kd && !NOT_EDITION.test(x.g.t) && x.ed2) (byKey[x.ed2] = byKey[x.ed2] || []).push(x); });
   Object.keys(byKey).forEach(k => {
     const eds = byKey[k];
