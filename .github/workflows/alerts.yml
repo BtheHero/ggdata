@@ -1,0 +1,50 @@
+# Sale and price alerts (jobs/alerts.js): after each Xbox and PlayStation run, emails and push notifications to the
+# site's accounts that turned alerts on. Secrets: SOURCE_API, ALERT_KEY, RESEND_API_KEY, VAPID_PRIVATE_KEY.
+name: Alerts
+on:
+  workflow_run:
+    workflows: [Xbox, PlayStation]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Only log what would be sent"
+        type: boolean
+        default: true
+concurrency:
+  group: alerts
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SOURCE_API: ${{ secrets.SOURCE_API }}
+      ALERT_KEY: ${{ secrets.ALERT_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      VAPID_PUBLIC_KEY: BFJdxpQ_aVxLdukPrcfd1b-UtXp6CMw67E-uoxy8ofwm8M_ys7139NgHEDUR4crZ_xa3qn3FwBABLa237PubaxY   # public by design (also in the site's config.js)
+      ALERTS_DRY: ${{ inputs.dry && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Download the price files
+        run: |
+          for f in xbox_catalog.json ps_catalog.json xbox_sales.json ps_sales.json alerts_sent.json; do
+            aws s3 cp "s3://ggdata/data/$f" "data/$f" --endpoint-url "$R2" --only-show-errors || true
+          done
+      - name: Note what was downloaded
+        run: node tools/upload.js snapshot
+      - name: Push notification library
+        run: npm install --no-save --no-audit --no-fund web-push@3.6.7
+      - name: Send the alerts
+        run: node jobs/alerts.js
+      - name: Upload the files
+        if: always()
+        run: node tools/upload.js push   # only the files this job changed
