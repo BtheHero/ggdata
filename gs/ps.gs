@@ -187,6 +187,20 @@ function psWide_(media) {
   return pick ? String(pick.url).split("?")[0] : null;
 }
 let PS_ART = {};   // product id -> {sq, wide} of the games on sale (sq is also in ps_sales.json, for the square cards)
+// Franchise pages (PlayStation's "Call of Duty" page shows Modern Warfare 4 with its name and price, see
+// psConceptPrice_): the listed game's own art instead of the page's. pids: product ids. Returns {pid: {image, sq}},
+// remembered for the run.
+const PS_FRANCHISE_ART = {};
+function psFranchiseArt_(pids) {
+  const need = pids.filter(p => p && !(p in PS_FRANCHISE_ART));
+  if (need.length) {
+    const found = psLookup_("metGetProductById", need, Date.now() + 60000);
+    need.forEach(p => { const m = found[p] && found[p].media; PS_FRANCHISE_ART[p] = m && m.length ? { image: psImage_(m), sq: psSquare_(m) } : null; });
+  }
+  const out = {};
+  pids.forEach(p => { if (PS_FRANCHISE_ART[p]) out[p] = PS_FRANCHISE_ART[p]; });
+  return out;
+}
 // Portrait cover (same 2:3 shape as the Xbox posters), else the square one
 function psImage_(media) {
   const list = media || [];
@@ -687,8 +701,10 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
     const d = (pid && cache.details[pid]) || {};
     const cp = psConceptPrice_(c, cache), price = cp.price, base = cp.base;
     const rel = d.rel || null, tiers = psFixTrial_(psTiers_(c.price, psConceptIds_(c)), c.id, trials || {}), subs = psSubs_(tiers);
+    const fa = cp.title && pid ? psFranchiseArt_([pid])[pid] : null;   // a franchise page: its game's own art
     return {
-      id: String(c.id), pid: pid || "", title: cp.title || c.name || "", publisher: d.pub || "", image: psImage_(c.media), sq: psSquare_(c.media), wide: psWide_(c.media),
+      id: String(c.id), pid: pid || "", title: cp.title || c.name || "", publisher: d.pub || "",
+      image: (fa && fa.image) || psImage_(c.media), sq: (fa && fa.sq) || psSquare_(c.media), wide: fa ? null : psWide_(c.media),
       price: price || 0, msrp: base || price || 0, currency: "USD", date: rel,
       ra: star(pid) ? star(pid)[0] : null, rc: star(pid) ? star(pid)[1] : 0,
       gp: subs.indexOf("psplus") >= 0, xs: subs.filter(s => s !== "psplus"), low: false, ends: null, pc: false, tiers: tiers,
@@ -784,17 +800,23 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
   }
   // cheapest edition for the most popular multi-edition games (the rest keep the store's price)
   if (cache) psEditionPrices_(all.items.slice(0, 400), cache, (t0 || Date.now()) + 3 * 60 * 1000, 500);
-  const rows = [];
+  const rows = [], franchise = [];   // [row index, product id] of franchise pages (psFranchiseArt_)
   all.items.forEach((c, i) => {
     if (!c || !c.id || !c.price) return;
     const cp = psConceptPrice_(c, cache), price = cp.price, base = cp.base;
     if (price === null) return;   // not sold on its own (e.g. only in a bundle)
     const tiers = psFixTrial_(psTiers_(c.price, psConceptIds_(c)), c.id, trials || {});
     const pid = (c.products && c.products[0] && c.products[0].id) || "";
+    if (cp.title && pid) franchise.push([rows.length, pid]);
     rows.push([String(c.id), cp.title || c.name || "", (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
                psImage_(c.media), i + 1, psSubs_(tiers).join(","), 0, "", tiers.join(","), PS_STORE + "concept/" + c.id, pid,
                String(psSquare_(c.media) || "").replace(PS_IMG_ROOT, "~")]);
   });
+  if (franchise.length) {
+    const art = psFranchiseArt_(franchise.map(x => x[1]));
+    franchise.forEach(([i, pid]) => { const a = art[pid]; if (!a) return; if (a.image) rows[i][6] = a.image; if (a.sq) rows[i][14] = String(a.sq).replace(PS_IMG_ROOT, "~"); });
+    Logger.log("PlayStation franchise pages with their game's own art: " + Object.keys(art).length + " of " + franchise.length);
+  }
   const file = saveJsonToDrive_({ updatedAt: new Date().toISOString(), platform: "ps", count: rows.length, games: rows },
                                 "ps_catalog.json", "PS_CATALOG_FILE_ID");
   Logger.log("PlayStation catalog saved: " + rows.length + " games " + file.getUrl());
