@@ -1,5 +1,5 @@
-# Older prices from the Internet Archive (jobs/archive.js): a slice of the best-known games each day, until every game has
-# been read; then each game again every two months for its newer saved copies.
+# Older prices from the Internet Archive (jobs/archive.js): about five hours a day for each store, the best-known games
+# first, until every game has been read; then each game again every two months for its newer saved copies.
 name: Archive prices
 on:
   schedule:
@@ -7,19 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       minutes:
-        description: "How long to run (minutes)"
-        default: "100"
+        description: "How long each store runs (minutes)"
+        default: "300"
       debug:
         description: "Log every game's prices"
         type: boolean
         default: false
-concurrency:
-  group: archive-files
-  cancel-in-progress: false
 jobs:
   run:
+    strategy:
+      matrix:
+        store: [xbox, ps]   # side by side: each writes its own file
+    concurrency:
+      group: archive-${{ matrix.store }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 330
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -33,16 +36,13 @@ jobs:
           node-version: 24
       - name: Download the saved files
         run: |
-          for f in xbox_catalog.json ps_catalog.json xbox_archive.json ps_archive.json _props.json; do
+          for f in ${{ matrix.store }}_catalog.json ${{ matrix.store }}_archive.json; do
             aws s3 cp "s3://ggdata/data/$f" "data/$f" --endpoint-url "$R2" --only-show-errors || true
           done
       - name: Note what was downloaded
         run: node tools/upload.js snapshot
       - name: Read the saved store pages
-        run: |
-          M=${{ inputs.minutes || '100' }}
-          node jobs/archive.js xbox $((M / 2))
-          node jobs/archive.js ps $((M / 2))
+        run: node jobs/archive.js ${{ matrix.store }} ${{ inputs.minutes || '300' }}
       - name: Upload the files
         if: always()
         run: node tools/upload.js push   # only the files this job changed

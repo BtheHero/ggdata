@@ -9,7 +9,7 @@
 // node jobs/archive.js [xbox|ps] [minutes]   (both by default; minutes: how long to run, 40 by default)
 const fs = require("fs"), path = require("path"), { execFileSync } = require("child_process");
 const DATA = path.resolve(process.env.DATA_DIR || "data");
-const PER_GAME = 40, GAMES_MAX = 400, RECHECK_DAYS = 60;
+const PER_GAME = 24, GAMES_MAX = 1000, RECHECK_DAYS = 60;
 const minutes = Number(process.argv[3]) || 40, until = Date.now() + minutes * 60000;
 const read = (f, d) => { try { return JSON.parse(fs.readFileSync(path.join(DATA, f), "utf8")); } catch (e) { return d; } };
 const sleep = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -57,8 +57,12 @@ function psPrice(html) {
   const m = html.match(/"basePrice"\s*:\s*"\$([\d,.]+)"\s*,\s*"discountedPrice"\s*:\s*"\$([\d,.]+)"/) ||
             html.match(/"discountedPrice"\s*:\s*"\$([\d,.]+)"[^}]*?"basePrice"\s*:\s*"\$([\d,.]+)"/);
   if (m) { const a = num(m[1].replace(/,/g, "")), b = num(m[2].replace(/,/g, "")); if (a !== null && b !== null) return html.indexOf('"basePrice"') < html.indexOf('"discountedPrice"') ? [b, a] : [a, b]; }
-  const f = html.match(/"price"\s*:\s*\{[^}]*?"value"\s*:\s*"?\$?([\d.]+)/);
-  return f && num(f[1]) !== null ? [num(f[1]), num(f[1])] : null;
+  // the page's product data (schema.org offer), or the buy button's price ("priceOrText":"$29.99","originalPrice":"$59.99")
+  const o = html.match(/"offers"\s*:\s*\{\s*"@type"\s*:\s*"Offer"\s*,\s*"price"\s*:\s*"?([\d.]+)/);
+  const b = html.match(/"priceOrText"\s*:\s*"\$([\d,.]+)"\s*,\s*"originalPrice"\s*:\s*"(?:\$([\d,.]+))?"/);
+  if (b && num(b[1].replace(/,/g, "")) !== null) { const a = num(b[1].replace(/,/g, "")), c = b[2] ? num(b[2].replace(/,/g, "")) : null; return [a, c !== null && c >= a ? c : a]; }
+  if (o && num(o[1]) !== null) return [num(o[1]), num(o[1])];
+  return null;
 }
 
 function run(plat) {
@@ -67,7 +71,8 @@ function run(plat) {
   out.done = out.done || {}; out.h = out.h || {};
   const cat = read(plat === "ps" ? "ps_catalog.json" : "xbox_catalog.json", { games: [] }).games || [];
   // best-known first (the full list's order is by store ratings / popularity), games bought for money
-  const list = cat.filter(r => r[0] && r[1] && Number(r[4]) > 0).slice(0, 6000);
+  const soon = Date.now() + 864e5;   // games not out yet have no older prices
+  const list = cat.filter(r => r[0] && r[1] && Number(r[4]) > 0 && !(r[10] && Date.parse(r[10]) > soon)).slice(0, 6000);
   const today = Math.floor(Date.now() / 864e5);   // days since 1970: done[id] is the day a game was last read
   const stale = d => !d || today - d > RECHECK_DAYS;
   const todo = list.filter(r => stale(out.done[r[0]])).slice(0, GAMES_MAX);
@@ -79,7 +84,10 @@ function run(plat) {
       ? ["store.playstation.com/en-us/concept/" + id].concat(r[13] ? ["store.playstation.com/en-us/product/" + r[13]] : [])
       : ["www.xbox.com/en-US/games/store/" + slug(r[1]) + "/" + id, "www.microsoft.com/en-us/p/" + slug(r[1]) + "/" + id.toLowerCase()];
     let caps = [], answered = true;
-    for (const u of urls) { const c = captures(u); if (c === null) answered = false; else caps = caps.concat(c); }
+    for (const u of urls) {
+      if (caps.length) break;   // (the old Microsoft Store address only when the first has no copies)
+      const c = captures(u); if (c === null) answered = false; else caps = caps.concat(c);
+    }
     if (!answered && !caps.length) { failed++; continue; }   // the archive didn't answer: tried again next run
     caps = caps.sort((a, b) => a[0].localeCompare(b[0])).filter((c, i, a) => i === 0 || a[i - 1][0].slice(0, 8) !== c[0].slice(0, 8));
     const pts = [];
