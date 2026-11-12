@@ -454,6 +454,22 @@ function gamePagesFor_(pre) {
     });
   }
 
+  // Home page "Popular add-ons on sale": expansions and season passes on sale, their game's store ratings first
+  // (most first), up to 30 (the page shows 15, and hides the row under 7)
+  try {
+    const big = Object.keys(games).filter(id => { const g = games[id]; return g.kd && /^(season pass|expansion)$/i.test(String(g.kd).trim()) && g.ao && g.pr > 0 && g.m > g.pr && (!g.e || Date.parse(g.e) > Date.now()); })
+      .map(id => ({ id: id, g: games[id], main: games[games[id].ao[0]] || {} }))
+      .sort((a, b) => ((b.main.ra && b.main.ra[1]) || 0) - ((a.main.ra && a.main.ra[1]) || 0)).slice(0, 30)
+      .map(x => ({ id: x.id, title: x.g.t, publisher: x.g.p || x.main.p || "", image: x.g.i || "", sq: x.g.q || null, price: x.g.pr, msrp: x.g.m,
+                   currency: x.g.c || "USD", kind: String(x.g.kd).trim(), ends: x.g.e || null, game: [x.g.ao[0], x.g.ao[1]], gp: false, xs: [] }));
+    const home = psReadJson_(pre + "HOME_FILE_ID", null);
+    if (home && home.sections) {
+      home.sections.addonsale = big;
+      saveJsonToDrive_(home, ps ? "ps_home.json" : "xbox_home.json", pre + "HOME_FILE_ID");
+    }
+    console.log((ps ? "PlayStation" : "Xbox") + " expansions and season passes on sale for the home page: " + big.length);
+  } catch (e) { console.log("Popular add-ons row failed: " + e.message); }
+
   const shards = [];
   for (let n = 0; n < GAME_SHARDS; n++) shards.push({});
   Object.keys(games).forEach(id => { shards[shardOf_(id)][id] = games[id]; });
