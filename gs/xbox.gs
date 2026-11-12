@@ -1301,12 +1301,13 @@ function fillScores() {
   fetchBudget_(sent);
 
   // one small map per platform: game id -> [score, slug]
+  const wrong = {};   // keys whose saved match was wrong: every game with that key gets null (several ids share a key)
   Object.keys(plats).forEach(pre => {
     const map = {};
     plats[pre].forEach(([id, title]) => {
       const k = scoreKey_(title), s = store[k];
       // a saved match whose numbers don't agree with the game's is wrong (an older looser match): looked up again next run
-      if (s && s[1] && mcNums_(s[1]) !== mcNums_(cleanTitle_(title))) { delete store[k]; map[id] = null; return; }   // null: replaces the saved one
+      if (wrong[k] || (s && s[1] && mcNums_(s[1]) !== mcNums_(cleanTitle_(title)))) { wrong[k] = 1; delete store[k]; map[id] = null; return; }   // null: replaces the saved one
       if (s && s[0] > 0) map[id] = [s[0], s[1]];
     });
     saveJsonToDrive_(map, pre ? "ps_scores.json" : "scores.json", pre + "SCORES_FILE_ID");

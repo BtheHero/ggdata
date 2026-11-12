@@ -453,10 +453,11 @@ function gamePagesFor_(pre) {
     Object.keys(games).forEach(id => {
       const g = games[id];
       if (!g.pe) return;
-      const shown = { done: false }, list = [];
+      const shown = { done: false }, list = [], game = psGameKey_(g.t);
       g.pe.forEach(pid => {
         const e = ep[pid];
-        if (!e || !e[3] || e[1] === null || NOT_ED.test(e[3])) return;
+        // (a franchise page holds several games: "Call of Duty" has Modern Warfare 4, Black Ops 7…; only this game's editions)
+        if (!e || !e[3] || e[1] === null || NOT_ED.test(e[3]) || psGameKey_(e[3]) !== game) return;
         if (!shown.done && e[0] === g.pr && e[1] === g.m) { shown.done = true; return; }   // the edition the page shows
         const own = games[pid] && !games[pid].a;
         list.push([pid, e[3], art(own ? games[pid] : g), e[0] || 0, e[1] || 0, own ? undefined : "https://store.playstation.com/en-us/product/" + pid]);
