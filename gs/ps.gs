@@ -478,6 +478,12 @@ function exportPlayStation_(opts) {
     if (d) { g.publisher = d.pub; g.released = d.rel || null; g.releaseDate = d.rel || null; g.genres = Array.from(new Set(d.gen || [])); }
     if (o && o.end > now && o.price === g.price) g.saleEnds = new Date(o.end).toISOString();
   });
+  // games the store gives no genre: the genres of another edition of the same game (psGameKey_)
+  const genresOf = {};
+  games.forEach(g => { const k = psGameKey_(g.title); if (k && g.genres && g.genres.length && !genresOf[k]) genresOf[k] = g.genres; });
+  let borrowed = 0;
+  games.forEach(g => { if (!(g.genres && g.genres.length)) { const k = psGameKey_(g.title), x = k && genresOf[k]; if (x) { g.genres = x.slice(); borrowed++; } } });
+  if (borrowed) Logger.log("PlayStation genres taken from another edition: " + borrowed);
 
   console.log("PlayStation lookups done" + psAt_(startTime));
   // PS Plus Premium trials are tagged "pstrial", not as included with PS Plus
@@ -547,7 +553,7 @@ function psFillPublishers() {
     // big-discounts pools come from these; well-known games are near the top)
     // then the rest of the full game list by popularity, for their descriptions (game pages)
     const ids = [].concat.apply([], rows.map(r => r.map(key)))
-      .concat((sales.games || []).slice().sort((a, b) => (a.rank || 1e9) - (b.rank || 1e9)).slice(0, 1500).map(g => g.productId))
+      .concat((sales.games || []).slice().sort((a, b) => (a.rank || 1e9) - (b.rank || 1e9)).map(g => g.productId))   // every game on sale
       .concat(((cat && cat.games) || []).filter(r => r[13]).sort((a, b) => (Number(a[7]) || 1e9) - (Number(b[7]) || 1e9)).map(r => r[13]));
     const allow = Math.min(PS_STAR_MAX, fetchBudget_(0));
     const got = allow ? psStarRatings_(ids, cache, startTime + 15 * 60 * 1000, allow) : false;
@@ -827,7 +833,7 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
     return;
   }
   // cheapest edition for the most popular multi-edition games (the rest keep the store's price)
-  if (cache) psEditionPrices_(all.items.slice(0, 400), cache, (t0 || Date.now()) + 3 * 60 * 1000, 500);
+  if (cache) psEditionPrices_(all.items, cache, (t0 || Date.now()) + 8 * 60 * 1000, 5000);   // every game sold in several editions
   const rows = [], franchise = [];   // [row index, product id] of franchise pages (psFranchiseArt_)
   all.items.forEach((c, i) => {
     if (!c || !c.id || !c.price) return;

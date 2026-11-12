@@ -16,7 +16,7 @@ const rt = require("../runtime/appsscript");
 
 const SHARDS = 64;
 const SHOTS_MAX = 8, VIDEOS_MAX = 4;
-const PS_MAX = Number(process.env.PS_MEDIA_MAX) || 3000;
+const PS_MAX = Number(process.env.PS_MEDIA_MAX) || 6000;
 const PS_STALE_DAYS = 14;
 const NEW_DAYS = 30;
 const XBOX_IMG = "https://store-images.s-microsoft.com/image/", PS_IMG = "https://image.api.playstation.com/vulcan/ap/rnd/";

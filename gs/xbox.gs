@@ -1213,7 +1213,7 @@ function quotaHit_(e) { return /too many times/i.test(String((e && e.message) ||
 // ({title key: [score, slug, day]}, score 0 = not on Metacritic). It then writes a small map per platform,
 // scores.json and ps_scores.json ({game id: [score, slug]}), which the site loads so a pop-up shows the
 // score straight away. Read with doGet &file=scores (and &platform=ps).
-const SCORE_MAX = 1200;  // Metacritic searches per run (about 2 minutes; no daily budget on GitHub)
+const SCORE_MAX = 3000;  // Metacritic searches per run (about 2 minutes; no daily budget on GitHub)
 
 
 // The same game on Xbox and PlayStation, in any edition, gets the same key

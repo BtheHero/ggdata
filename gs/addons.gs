@@ -9,7 +9,7 @@
 // games, then the next ones in turn, up to XADDON_QUERIES searches, so every game is looked up every few days.
 // Run exportXboxAddOns once by hand, then createXboxAddOnsTrigger once.
 
-const XADDON_QUERIES = 1000;   // searches per run (within the daily budget, see fetchBudget_)
+const XADDON_QUERIES = 4500;   // searches per run (within the daily budget, see fetchBudget_)
 const XADDON_TOP = 400;        // the best-known games with add-ons, looked up on every run
 const XADDON_PAGES = 4;        // pages of 25 add-ons per game at most
 const XADDON_KEEP_DAYS = 6;    // an add-on not seen again for this long (and with no sale end date) is dropped
