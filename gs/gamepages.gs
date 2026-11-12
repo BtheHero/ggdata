@@ -236,9 +236,18 @@ function addRelated_(games, ps) {
   });
 
   // Other editions of the same game (Standard, Deluxe, Ultimate, the PC version…), cheapest first: ed
+  // the game a title is an edition of: what's left without a last part naming an edition ("… - Vault Edition",
+  // ": Ultimate Edition", "… - Cross-Gen Bundle") or an edition word before "Edition"/"Bundle", and the platform
+  const edKey = t => {
+    let s = String(t || "").replace(/[™®©]/g, "").replace(/\s*[([](pc|windows|xbox[^)\]]*|ps[45][^)\]]*)[)\]]\s*$/i, "");
+    const parts = s.split(/\s*(?:[:–—|]|\s-\s)\s*/);   // only the part after the last separator can name the edition
+    if (parts.length > 1 && /\b(edition|bundle|version)\b/i.test(parts[parts.length - 1])) s = parts.slice(0, -1).join(" ");
+    s = s.replace(/\s*((standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|collector'?s|anniversary|special|enhanced|legendary|launch|cross-gen|game of the year|goty|platinum|limited|super|\d+(st|nd|rd|th))\s+)+(edition|bundle)\b.*$/i, "");
+    return editionKey_(s);
+  };
   const NOT_EDITION = /\b(add-?ons?|upgrade|season pass|dlc|expansion pass|soundtrack|launcher|credits|currency|points|coins|virtual currency|costume|skins?|purchase bonus|pre-?order bonus)\b/i;
   const byKey = Object.create(null);   // (no built-in keys: a game called "Constructor" is just a name)
-  list.forEach(x => { if (!x.g.kd && !NOT_EDITION.test(x.g.t) && x.ed2) (byKey[x.ed2] = byKey[x.ed2] || []).push(x); });
+  list.forEach(x => { const k = edKey(x.g.t); if (!x.g.kd && !NOT_EDITION.test(x.g.t) && k) (byKey[k] = byKey[k] || []).push(x); });
   Object.keys(byKey).forEach(k => {
     const eds = byKey[k];
     if (eds.length < 2 || eds.length > 30) return;   // a very long list is a common name, not one game's editions
@@ -358,7 +367,8 @@ function gamePagesFor_(pre) {
       ra: rating(pid || r[0]), mc: score(r[0]) || (pid && score(pid)), h: hist[pid || r[0]] || hist[r[0]] || undefined,
       pi: pid && pid !== r[0] ? pid : undefined, g: genresOf(pid, r[0]), d: descOf(pid, r[0]),
       q: catSquare_(r) || undefined,   // square art
-      xp: r[15] ? 1 : undefined   // Xbox Play Anywhere
+      xp: r[15] ? 1 : undefined,   // Xbox Play Anywhere
+      pe: ps && r[16] ? String(r[16]).split(",") : undefined   // PlayStation: the game's editions (product ids), made into ed below
     };
     if (pid && pid !== r[0]) games[pid] = { a: r[0] };
   });
@@ -421,6 +431,28 @@ function gamePagesFor_(pre) {
   console.log((ps ? "PlayStation" : "Xbox") + " add-ons matched to their game: " + attachAddOns_(games, ps ? psAddOnsSeen_(games) : xAddOnsAll_(), ps));
 
   addRelated_(games, ps);
+  // PlayStation: a game's editions are products of its one store page (concept). Their names and prices come from the
+  // edition lookups (ps_cache.json eprice); an edition with a page of its own (on sale) links there, the others to the store.
+  if (ps) {
+    const ep = psCache.eprice || {}, art = g => String(g.q || g.i || "").replace("https://image.api.playstation.com/vulcan/ap/rnd/", "~");
+    const NOT_ED = /\b(upgrade|add-?ons?|season pass|expansion|dlc|soundtrack|currency|points|coins|virtual)\b/i;
+    Object.keys(games).forEach(id => {
+      const g = games[id];
+      if (!g.pe) return;
+      const shown = { done: false }, list = [];
+      g.pe.forEach(pid => {
+        const e = ep[pid];
+        if (!e || !e[3] || e[1] === null || NOT_ED.test(e[3])) return;
+        if (!shown.done && e[0] === g.pr && e[1] === g.m) { shown.done = true; return; }   // the edition the page shows
+        const own = games[pid] && !games[pid].a;
+        list.push([pid, e[3], art(own ? games[pid] : g), e[0] || 0, e[1] || 0, own ? undefined : "https://store.playstation.com/en-us/product/" + pid]);
+      });
+      delete g.pe;
+      if (!list.length) return;
+      const have = new Set(list.map(x => x[0]));
+      g.ed = list.sort((a, b) => (a[4] || 1e9) - (b[4] || 1e9)).concat((g.ed || []).filter(x => !have.has(x[0]))).slice(0, 10);
+    });
+  }
 
   const shards = [];
   for (let n = 0; n < GAME_SHARDS; n++) shards.push({});

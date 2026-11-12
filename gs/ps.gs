@@ -810,7 +810,8 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
     if (cp.title && pid) franchise.push([rows.length, pid]);
     rows.push([String(c.id), cp.title || c.name || "", (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
                psImage_(c.media), i + 1, psSubs_(tiers).join(","), 0, "", tiers.join(","), PS_STORE + "concept/" + c.id, pid,
-               String(psSquare_(c.media) || "").replace(PS_IMG_ROOT, "~")]);
+               String(psSquare_(c.media) || "").replace(PS_IMG_ROOT, "~"), 0,
+               psConceptIds_(c).length > 1 ? psConceptIds_(c).join(",") : ""]);   // 16: the game's editions (product ids)
   });
   if (franchise.length) {
     const art = psFranchiseArt_(franchise.map(x => x[1]));
