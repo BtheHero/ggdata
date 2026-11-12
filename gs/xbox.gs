@@ -20,7 +20,7 @@ const KEEP_LISTS = /^(PS_)?(JSON|CATALOG)_FILE_ID$/;
 const KEEP_MERGE = /^(XDESC|XRELEASE|XRATINGS|XGENRES|SCORES|PS_SCORES|PS_DESC|PS_RATINGS)_FILE_ID$/;
 const KEEP_SHARDS = /^(PS_)?SHARD_\d+_FILE_ID$/;
 const KEEP_HOME = /^(PS_)?HOME_FILE_ID$/;
-const KEEP_GAME_FIELDS = ["d", "mc", "ra", "g", "r", "q", "i", "h", "p", "u"];
+const KEEP_GAME_FIELDS = ["d", "mc", "ra", "g", "r", "q", "i", "h", "p", "u"];   // (ed, rl: rebuilt every run)
 function keepGoodData_(data, propKey) {
   if (!data || typeof data !== "object") return data;
   const kind = KEEP_LISTS.test(propKey) ? "list" : KEEP_MERGE.test(propKey) ? "merge" : KEEP_SHARDS.test(propKey) ? "shard" : KEEP_HOME.test(propKey) ? "home" : "";

@@ -234,6 +234,19 @@ function addRelated_(games, ps) {
     }
     if (out.length) x.g.rl = out;
   });
+
+  // Other editions of the same game (Standard, Deluxe, Ultimate, the PC version…), cheapest first: ed
+  const NOT_EDITION = /\b(add-?ons?|upgrade|season pass|dlc|expansion pass|soundtrack|launcher|credits|currency|points|coins|virtual currency|costume|skins?|purchase bonus|pre-?order bonus)\b/i;
+  const byKey = {};
+  list.forEach(x => { if (!x.g.kd && !NOT_EDITION.test(x.g.t) && x.ed2) (byKey[x.ed2] = byKey[x.ed2] || []).push(x); });
+  Object.keys(byKey).forEach(k => {
+    const eds = byKey[k];
+    if (eds.length < 2 || eds.length > 30) return;   // a very long list is a common name, not one game's editions
+    eds.forEach(x => {
+      const others = eds.filter(y => y !== x).sort((a, b) => (a.g.m || a.g.pr || 1e9) - (b.g.m || b.g.pr || 1e9) || b.pop - a.pop).slice(0, 10);
+      x.g.ed = others.map(y => [y.id, y.g.t, art(y.g), y.g.pr || 0, y.g.m || 0]);
+    });
+  });
 }
 
 // Which shard a game's id belongs to (the Cloudflare function uses the same formula)
