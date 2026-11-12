@@ -1236,9 +1236,18 @@ function mcOpts_() {
   return { muteHttpExceptions: true, headers: { "User-Agent": "Mozilla/5.0 (compatible; XboxDealsTracker/1.0)", "Accept": "application/json" } };
 }
 // The matching game in the results: {mc, slug} (mc 0 when there's no Metascore), or null when no result matches
+// The numbers in a title or Metacritic slug that tell games of a series apart: 4, II, IV ("Modern Warfare 4" isn't
+// "Modern Warfare 2"). Years (1980 on) are left out: Metacritic adds them to some slugs ("doom-2016").
+function mcNums_(s) {
+  return String(s || "").toLowerCase().split(/[^a-z0-9]+/)
+    .filter(w => (/^\d+$/.test(w) && !(+w >= 1980 && +w <= 2100)) || /^(ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii)$/.test(w))
+    .map(w => ({ ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7", viii: "8", ix: "9", x: "10", xi: "11", xii: "12" })[w] || String(+w))
+    .sort().join(",");
+}
 function mcFind_(q, items) {
   if (!items) return null;
-  const nq = norm_(q), close = name => { const a = norm_(name); return a === nq || (a && nq && (a.indexOf(nq) === 0 || nq.indexOf(a) === 0)); };
+  // a title that starts like the game's counts only when their numbers agree
+  const nq = norm_(q), close = name => { const a = norm_(name); return a === nq || (a && nq && (a.indexOf(nq) === 0 || nq.indexOf(a) === 0) && mcNums_(name) === mcNums_(q)); };
   const best = items.find(x => norm_(x.title) === nq) || items.find(x => close(x.title));
   if (!best) return { mc: 0, slug: "" };
   const sc = best.criticScoreSummary ? best.criticScoreSummary.score : (best.metascore || best.metaScore);
@@ -1290,15 +1299,20 @@ function fillScores() {
     });
   }
   fetchBudget_(sent);
-  saveJsonToDrive_(store, "metacritic.json", "METACRITIC_FILE_ID");
 
   // one small map per platform: game id -> [score, slug]
   Object.keys(plats).forEach(pre => {
     const map = {};
-    plats[pre].forEach(([id, title]) => { const s = store[scoreKey_(title)]; if (s && s[0] > 0) map[id] = [s[0], s[1]]; });
+    plats[pre].forEach(([id, title]) => {
+      const k = scoreKey_(title), s = store[k];
+      // a saved match whose numbers don't agree with the game's is wrong (an older looser match): looked up again next run
+      if (s && s[1] && mcNums_(s[1]) !== mcNums_(cleanTitle_(title))) { delete store[k]; map[id] = null; return; }   // null: replaces the saved one
+      if (s && s[0] > 0) map[id] = [s[0], s[1]];
+    });
     saveJsonToDrive_(map, pre ? "ps_scores.json" : "scores.json", pre + "SCORES_FILE_ID");
     console.log((pre ? "PlayStation" : "Xbox") + " games with a Metascore: " + Object.keys(map).length);
   });
+  saveJsonToDrive_(store, "metacritic.json", "METACRITIC_FILE_ID");   // after the check above, so wrong matches are looked up again
   console.log("Metacritic: " + found + " titles looked up, " + Math.max(0, need.length - found) + " still to go, " +
               Object.keys(store).length + " known");
 }
