@@ -95,7 +95,9 @@ function run(plat) {
       if (Date.now() > until) break;
       const html = get("https://web.archive.org/web/" + ts + "id_/" + orig); pages++;
       const p = html && (plat === "ps" ? psPrice(html) : xboxPrice(html, id));
-      if (p && p[0] !== null) pts.push([ymd(ts), p[0], p[1]]);
+      // a price far above the game's regular price is another product's on the same page (a bundle): left out
+      const reg = Number(r[4]) || 0;
+      if (p && p[0] !== null && p[0] > 0 && !(reg && (p[1] > reg * 1.5 || p[0] > reg * 1.5))) pts.push([ymd(ts), p[0], p[1]]);
     }
     const had = out.h[id] || [];
     const merged = had.concat(pts).sort((a, b) => a[0] - b[0]).filter((x, i, a) => i === 0 || a[i - 1][0] !== x[0]);
