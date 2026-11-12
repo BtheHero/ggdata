@@ -61,6 +61,14 @@ const PS_REGIONS = {
 // Key that matches the same game edition across regions. Product ids differ per region (even the title id part),
 // so deals are matched on title + edition type + platforms. Concept ids are the same everywhere and are used as they are.
 // Titles with no Latin letters or digits (some Japanese/Korean ones) can't be matched and keep their own id.
+// The same edition in another region, by its store code: product ids differ per region in their first parts, but end
+// in the same label ("UP0002-PPSA01649_00-CODMW4STANDARD01" / "EP0002-PPSA01650_00-CODMW4STANDARD01"). Labels that say
+// nothing about the game ("FULLGAME00000000", all zeros) give "". The platform (PS4 CUSA / PS5 PPSA) is part of it.
+function psCodeKey_(id) {
+  const m = String(id || "").match(/^[A-Z]{2}\d{4}-([A-Z]{4})\d{5}_\d\d-([A-Z0-9]{6,16})$/);
+  if (!m || !/[A-Z].*[A-Z].*[A-Z]/.test(m[2]) || /^(FULLGAME|FULL|GAME|MAINGAME|BASEGAME|APPLICATION|PRODUCT)\d*$/.test(m[2])) return "";
+  return m[1].slice(0, 2) + ":" + m[2];
+}
 function psDealKey_(p) {
   const t = norm_(cleanTitle_(p.name));
   return t ? "t:" + t + "|" + (p.storeDisplayClassification || "") + "|" + (p.platforms || []).slice().sort().join("+") : String(p.id);
@@ -663,8 +671,9 @@ function psUpdateHistory_(games, onSale) {
     if (!last || !samePrice_(last[1], g.price)) list.push([today, g.price]);   // samePrice_: exportXboxCatalog.gs
     data.b[g.productId] = g.msrp;
   });
+  data.c = data.c || {};
   Object.keys(data.h).forEach(id => {
-    if (onSale[id]) return;
+    if (onSale[id] || data.c[id]) return;   // (whole games from the full list: psConceptHistory_ keeps their price)
     const list = data.h[id], last = list[list.length - 1], base = data.b[id];
     if (base && last && last[1] < base - 0.02) list.push([today, base]);   // sale over: back to full price
   });
@@ -678,6 +687,25 @@ function psUpdateHistory_(games, onSale) {
   saveJsonToDrive_(data, "ps_history.json", "PS_HISTORY_FILE_ID");
   Logger.log("PlayStation history: " + Object.keys(data.h).length + " games tracked since " + data.since +
              ", " + games.filter(g => g.atLow).length + " at their lowest tracked price");
+}
+
+// Every game of the full list (concepts, on sale or not): its price whenever it changes, like the deals above.
+// rows: ps_catalog.json rows [id, title, publisher, price, regular price, …]. Marked in data.c.
+function psConceptHistory_(rows) {
+  const today = psDay_(Date.now());
+  const data = psReadJson_("PS_HISTORY_FILE_ID", null);
+  if (!data || !data.h) return;
+  data.b = data.b || {}; data.c = data.c || {};
+  let n = 0;
+  rows.forEach(r => {
+    const id = String(r[0]), price = Number(r[3]), base = Number(r[4]) || price;
+    if (!id || !(price >= 0)) return;
+    const list = data.h[id] || (data.h[id] = []), last = list[list.length - 1];
+    if (!last || !samePrice_(last[1], price)) { list.push([today, price]); n++; }
+    data.b[id] = base; data.c[id] = 1;
+  });
+  saveJsonToDrive_(data, "ps_history.json", "PS_HISTORY_FILE_ID");
+  Logger.log("PlayStation history: " + rows.length + " whole games tracked (" + n + " price changes today)");
 }
 
 // Home rows in the same shape as xbox_home.json. Cards carry their own store `url`.
@@ -820,6 +848,7 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
   }
   const file = saveJsonToDrive_({ updatedAt: new Date().toISOString(), platform: "ps", count: rows.length, games: rows },
                                 "ps_catalog.json", "PS_CATALOG_FILE_ID");
+  try { psConceptHistory_(rows); } catch (e) { Logger.log("PlayStation whole-game history failed: " + e.message); }
   Logger.log("PlayStation catalog saved: " + rows.length + " games " + file.getUrl());
 }
 
@@ -849,20 +878,26 @@ function exportPsRegion_(code, startTime) {
     Logger.log("PlayStation " + code + ": deals list incomplete, keeping the previous file");
     return false;
   }
+  // a deal here is filed under the US deal's key when they're the same edition: by store code, else by title
+  // (titles fail in stores without English names: Spanish, German, Ukrainian…)
+  const usByCode = {};
+  (psReadJson_("PS_JSON_FILE_ID", { games: [] }).games || []).forEach(g => { const c = psCodeKey_(g.productId); if (c && g.key && !usByCode[c]) usByCode[c] = g.key; });
+  const keyOf = p => usByCode[psCodeKey_(p.id)] || psDealKey_(p);
   const prices = {}, sale = [];
   let rank = 0;
   deals.items.forEach(p => {
     if (!p || !p.id || !p.price) return;
-    const key = psDealKey_(p);
+    const key = keyOf(p);
     if (prices[key]) return;
     const base = psPrice_(p.price.basePrice), price = psPrice_(p.price.discountedPrice);
     if (base === null || price === null || !(price < base) || p.price.isTiedToSubscription || p.price.isExclusive) return;
     prices[key] = [price, base, ++rank, Math.round((1 - price / base) * 100), p.id];
     sale.push(p);
   });
-  // concepts from the region's top lists and newest releases, for the home page rows
+  // every game (concept) of the region's store, with its price: game pages, the full game list and the comparisons.
+  // Concept ids are the same in every region.
   const picks = [];   // games priced by an edition in the US (PS_EPICK): their editions here, looked up below
-  [["sales30", 40], ["downloads30", 40], ["conceptReleaseDate", 300]].forEach(([sort, n]) => {
+  [["sales30", 15000]].forEach(([sort, n]) => {
     psGrid_(PS_ALL_GAMES, { name: sort, isAscending: false }, n, locale).items.forEach(c => {
       if (!c || !c.id || !c.price || prices[String(c.id)]) return;
       const price = psPrice_(c.price.discountedPrice), base = psPrice_(c.price.basePrice);
@@ -873,7 +908,7 @@ function exportPsRegion_(code, startTime) {
   });
   if (picks.length) {
     // each edition's price in this store, then the same pick as the US (psConceptPrice_: the lowest regular price)
-    const ids = Array.from(new Set([].concat(...picks.map(psConceptIds_)))).slice(0, 600);
+    const ids = Array.from(new Set([].concat(...picks.map(psConceptIds_)))).slice(0, 900);
     const found = psLookup_("productRetrieveForCtasWithPrice", ids, Date.now() + 120000, locale), today = psDay_(Date.now()), ep = {};
     Object.keys(found).forEach(id => { const o = psOfferText_(found[id]); ep[id] = o ? [o.price, o.base, today, String(found[id].name || "")] : [null, null, today, String(found[id].name || "")]; });
     let fixed = 0;
@@ -898,9 +933,9 @@ function exportPsRegion_(code, startTime) {
   const us = {};
   (psReadJson_("PS_JSON_FILE_ID", { games: [] }).games || []).forEach(g => { if (g.key) us[g.key] = true; });
   const storeBase = "https://store.playstation.com/" + locale.toLowerCase() + "/product/";
-  const extra = sale.filter(p => !us[psDealKey_(p)]).map(p => {
+  const extra = sale.filter(p => !us[keyOf(p)]).map(p => {
     const tiers = psTiers_(p.price, [p.id]).filter(t => t !== "pspremium");   // can't tell Premium catalog from a trial here
-    return { productId: p.id, key: psDealKey_(p), title: p.name || "", publisher: "", image: psImage_(p.media), pc: false,
+    return { productId: p.id, key: keyOf(p), title: p.name || "", publisher: "", image: psImage_(p.media), pc: false,
              platforms: p.platforms || [], url: storeBase + p.id, subs: psSubs_(tiers), tiers: tiers, genres: [] };
   });
 
