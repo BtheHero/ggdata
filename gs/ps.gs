@@ -142,7 +142,7 @@ function psGrid_(category, sortBy, maxItems, locale) {
 }
 
 // Runs one per-game request for many ids, 40 at a time, until the deadline. Returns {id: data}.
-function psLookup_(operation, ids, deadline) {
+function psLookup_(operation, ids, deadline, locale) {
   const out = {};
   for (let i = 0; i < ids.length; i += 40) {
     if (Date.now() > deadline) {
@@ -151,7 +151,7 @@ function psLookup_(operation, ids, deadline) {
     }
     const chunk = ids.slice(i, i + 40);
     let res = [];
-    try { res = UrlFetchApp.fetchAll(chunk.map(id => psRequest_(operation, { productId: id }))); }
+    try { res = UrlFetchApp.fetchAll(chunk.map(id => psRequest_(operation, { productId: id }, locale))); }
     catch (e) { Logger.log("PlayStation lookup batch error: " + e.message); if (quotaHit_(e)) { console.log("Google's daily request limit reached, stopping"); break; } }
     chunk.forEach((id, k) => {
       const d = psData_(res[k], operation + " " + id);
@@ -270,6 +270,18 @@ function psOffer_(prod) {
   if (!p) return null;
   return { end: Number(p.endTime) || 0, price: p.discountedValue / 100, base: p.basePriceValue / 100, campaign: p.campaignId || "" };
 }
+// The same offer in another region's store: from the price as written ("¥9,790", "1 899,00 Kč"), since the values
+// in cents don't hold for currencies without cents
+function psOfferText_(prod) {
+  const ctas = ((prod && prod.webctas) || []).filter(c => c.price && (c.price.basePrice || c.price.discountedPrice));
+  const member = c => /UPSELL|PS_PLUS/.test(c.type || "") || (c.price.serviceBranding || []).indexOf("PS_PLUS") >= 0 ||
+                      c.price.isTiedToSubscription || c.price.isExclusive;
+  const regular = ctas.filter(c => !member(c)).map(c => c.price);
+  const p = regular[0] || (ctas[0] && ctas[0].price);
+  if (!p) return null;
+  const price = psPrice_(p.discountedPrice), base = psPrice_(p.basePrice);
+  return price === null && base === null ? null : { price: price === null ? base : price, base: base === null ? price : base };
+}
 
 // Games sold in several editions: the store gives the game (concept) the price of its first edition,
 // which can be the most expensive one (GTA VI showed the Ultimate Edition's price). Each edition's price is
@@ -301,6 +313,9 @@ function psGameKey_(name) {
   return norm_(String(name || "").replace(/[™®©]/g, "").split(/\s+[-–]\s+|\s*\(/)[0]
     .replace(/\b(standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|cross-gen|bundle|trial|edition)\b.*$/i, ""));
 }
+// Games whose US price is an edition other than the store's own price for the game (GTA VI: Standard, not the
+// Ultimate the store shows): the regions look their editions up too (exportPsRegion_), so they compare the same edition
+let PS_EPICK = {};
 function psConceptPrice_(c, cache) {
   let price = psPrice_(c.price && c.price.discountedPrice), base = psPrice_(c.price && c.price.basePrice);
   const ids = psConceptIds_(c), ep = (cache && cache.eprice) || {};
@@ -320,7 +335,10 @@ function psConceptPrice_(c, cache) {
     });
     // the store's "from" price for the page can itself be the upgrade's: then the standard edition's price replaces it
     const fromAddOn = base !== null && ids.some(id => ep[id] && notEdition(ep[id]) && ep[id][1] === base);
-    if (std && (base === null || std[1] <= base || fromAddOn)) { price = std[0]; base = std[1]; }
+    if (std && (base === null || std[1] <= base || fromAddOn)) {
+      if (c && c.id && (std[1] !== base || std[0] !== price)) PS_EPICK[String(c.id)] = 1;
+      price = std[0]; base = std[1];
+    }
   }
   return { price: price, base: base };
 }
@@ -820,14 +838,30 @@ function exportPsRegion_(code, startTime) {
     sale.push(p);
   });
   // concepts from the region's top lists and newest releases, for the home page rows
+  const picks = [];   // games priced by an edition in the US (PS_EPICK): their editions here, looked up below
   [["sales30", 40], ["downloads30", 40], ["conceptReleaseDate", 300]].forEach(([sort, n]) => {
     psGrid_(PS_ALL_GAMES, { name: sort, isAscending: false }, n, locale).items.forEach(c => {
       if (!c || !c.id || !c.price || prices[String(c.id)]) return;
       const price = psPrice_(c.price.discountedPrice), base = psPrice_(c.price.basePrice);
       if (price === null) return;
       prices[String(c.id)] = [price, base === null ? price : base, 1e6, 0, String(c.id)];
+      if (PS_EPICK[String(c.id)] && psConceptIds_(c).length > 1) picks.push(c);
     });
   });
+  if (picks.length) {
+    // each edition's price in this store, then the same pick as the US (psConceptPrice_: the lowest regular price)
+    const ids = Array.from(new Set([].concat(...picks.map(psConceptIds_)))).slice(0, 600);
+    const found = psLookup_("productRetrieveForCtasWithPrice", ids, Date.now() + 120000, locale), today = psDay_(Date.now()), ep = {};
+    Object.keys(found).forEach(id => { const o = psOfferText_(found[id]); ep[id] = o ? [o.price, o.base, today, String(found[id].name || "")] : [null, null, today, String(found[id].name || "")]; });
+    let fixed = 0;
+    picks.forEach(c => {
+      const cp = psConceptPrice_(c, { eprice: ep }), k = String(c.id);
+      if (cp.price === null || cp.price === undefined) return;
+      if (cp.price !== prices[k][0] || cp.base !== prices[k][1]) fixed++;
+      prices[k] = [cp.price, cp.base === null ? cp.price : cp.base, 1e6, 0, k];
+    });
+    Logger.log("PlayStation " + code + ": " + picks.length + " games priced by edition (" + fixed + " changed, " + Object.keys(found).length + " editions looked up)");
+  }
 
   // currency: asked once from the first game's price details
   let currency = "";
