@@ -65,10 +65,13 @@ function prices() {
       info[g.productId] = { plat, title: g.title, price: Number(g.price) || 0, msrp: Number(g.msrp) || 0, image: g.image || "", ends: g.saleEnds || null };
     });
   });
+  // a PS4 or PS5 version merged into the other one's deal (gs/ps.gs psMergeVersions_): the kept deal's price
+  const dups = read("ps_sales.json", {}).dups || {};
+  Object.keys(dups).forEach(id => { const k = info[dups[id]]; if (k && k.ends !== undefined) info[id] = Object.assign({}, k, { page: dups[id] }); });
   Object.values(info).forEach(x => { if (x.image && !/^https?:/.test(x.image)) x.image = XIMG + x.image; });
   return info;
 }
-const pageUrl = (id, x) => `${SITE}/game/${x.plat}/${encodeURIComponent(id)}/${slug(x.title)}`;
+const pageUrl = (id, x) => `${SITE}/game/${x.plat}/${encodeURIComponent(x.page || id)}/${slug(x.title)}`;
 
 function emailHtml(u, items) {
   const rows = items.map(({ id, x, kind, target }) => {

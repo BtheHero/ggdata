@@ -194,6 +194,29 @@ function psWide_(media) {
                list.find(m => m.role === "SIXTEEN_BY_NINE_BANNER");
   return pick ? String(pick.url).split("?")[0] : null;
 }
+// The PS4 and PS5 versions of a game are often sold (and discounted) as two products with the same name: one deal
+// each would list the game twice. They're merged into one: the PS5 version (or the first), with both platforms and
+// the better popularity rank. PS_DUPS {left-out product id: kept product id} goes in ps_sales.json (dups), so the
+// left-out product's page sends visitors to the kept one (gs/gamepages.gs).
+let PS_DUPS = {};
+const psVersionKey_ = g => String(g.title || "").toLowerCase().replace(/[™®©]/g, "").replace(/\s*[-–(\[]?\s*\b(ps4|ps5)(\s*(&|and|\/)\s*(ps4|ps5))?\b\s*(version|edition)?[)\]]?\s*$/, "")
+  .replace(/\s+/g, " ").trim() + "|" + String(g.kind || "").toLowerCase();
+function psMergeVersions_(games) {
+  PS_DUPS = {};
+  const by = {};
+  games.forEach(g => { (by[psVersionKey_(g)] = by[psVersionKey_(g)] || []).push(g); });
+  Object.keys(by).forEach(k => {
+    const list = by[k];
+    if (list.length < 2) return;
+    const keep = list.find(g => (g.platforms || []).indexOf("PS5") >= 0) || list[0];
+    keep.platforms = list.reduce((a, g) => a.concat(g.platforms || []), []).filter((x, i, a) => a.indexOf(x) === i).sort();
+    keep.rank = Math.min.apply(null, list.map(g => g.rank || 1e9));
+    list.forEach(g => { if (g !== keep) PS_DUPS[g.productId] = keep.productId; });
+  });
+  for (let i = games.length - 1; i >= 0; i--) if (PS_DUPS[games[i].productId]) games.splice(i, 1);
+  console.log("PlayStation PS4 and PS5 versions merged: " + Object.keys(PS_DUPS).length + " deals left out, " + games.length + " remain");
+}
+
 let PS_ART = {};   // product id -> {sq, wide} of the games on sale (sq is also in ps_sales.json, for the square cards)
 // Franchise pages (PlayStation's "Call of Duty" page shows Modern Warfare 4 with its name and price, see
 // psConceptPrice_): the listed game's own art instead of the page's. pids: product ids. Returns {pid: {image, sq}},
@@ -422,6 +445,7 @@ function exportPlayStation_(opts) {
     PS_ART[p.id] = { sq: psSquare_(p.media), wide: psWide_(p.media) };
   });
   console.log("PlayStation games on sale: " + games.length + " (" + skipped + " skipped: PS Plus-only or no real discount)" + psAt_(startTime));
+  psMergeVersions_(games);
 
   // 2. Store rankings and newest releases (concepts = one entry per game)
   const top = (s, n) => psGrid_(PS_ALL_GAMES, { name: s, isAscending: false }, n || 40).items;
@@ -498,7 +522,7 @@ function exportPlayStation_(opts) {
   // 4. Price history: all-time lows and newest discounts
   try { psUpdateHistory_(games, seen); } catch (e) { Logger.log("PlayStation history failed: " + e.message); }
 
-  saveJsonToDrive_({ updatedAt: new Date().toISOString(), platform: "ps", count: games.length, games: games },
+  saveJsonToDrive_({ updatedAt: new Date().toISOString(), platform: "ps", count: games.length, games: games, dups: PS_DUPS },
                    "ps_sales.json", "PS_JSON_FILE_ID");
   psSaveCache_(cache);
   console.log("PlayStation history and files saved" + psAt_(startTime));

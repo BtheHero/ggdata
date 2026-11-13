@@ -318,7 +318,8 @@ function siteScores_(ps) {
 function gamePagesFor_(pre) {
   const ps = pre === "PS_";
   const cat = psReadJson_(pre + "CATALOG_FILE_ID", { games: [] }).games || [];
-  const sales = psReadJson_(pre + "JSON_FILE_ID", { games: [] }).games || [];
+  const salesFile = psReadJson_(pre + "JSON_FILE_ID", { games: [] }), sales = salesFile.games || [];
+  const dups = salesFile.dups || {};   // PlayStation: a PS4 or PS5 version left out of the deals for the other one (gs/ps.gs psMergeVersions_)
   // Metacritic scores: looked up by the data jobs on GitHub now (ggdata), read through the site; the old copy if that fails
   const scores = psReadJson_(pre + "SCORES_FILE_ID", {});   // here the scores job saves them next to the other files
   const hist = (psReadJson_(pre + "HISTORY_FILE_ID", { h: {} }) || {}).h || {};
@@ -393,6 +394,8 @@ function gamePagesFor_(pre) {
     if (!e.d) e.d = descOf(id);
     if (ps && PS_ADDON_KINDS.test(String(g.kind || "").trim())) e.kd = String(g.kind).trim();   // an add-on, not a game
   });
+  // the left-out version's page: the kept version's (unless it has a page of its own from the full list)
+  Object.keys(dups).forEach(id => { if (!games[id] && games[dups[id]]) games[id] = { a: games[dups[id]].a || dups[id] }; });
   // Games the store doesn't sell yet but the site links to (upcoming games, coming to Game Pass, wishlisted...):
   // a page each, from the home page rows and the Game Pass lists; np = no price yet
   const listed = [], home = psReadJson_(pre + "HOME_FILE_ID", { sections: {} }).sections || {};
