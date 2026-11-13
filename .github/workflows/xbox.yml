@@ -46,6 +46,9 @@ jobs:
       - name: The week's best deals
         if: always()
         run: node jobs/weekly.js xbox
+      - name: Themed sale (Black Friday and the like) while it's on
+        if: always()
+        run: node jobs/events.js xbox
       - name: Light game list for the site's pages
         if: always()
         run: node jobs/lite.js xbox
