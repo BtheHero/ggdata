@@ -29,7 +29,9 @@ function keepGoodData_(data, propKey) {
   if (!old || typeof old !== "object") return data;
   const empty = v => v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length);
   if (kind === "list") {
-    const n = (data.games || []).length, o = (old.games || []).length;
+    // (deal lists: only the saved deals still on sale count, so a big sale ending isn't taken for a broken run)
+    const now = Date.now(), live = g => !(g && g.saleEnds && Date.parse(g.saleEnds) <= now);
+    const n = (data.games || []).length, o = (old.games || []).filter(live).length;
     if (o > 100 && n < o * 0.5) { Logger.log(propKey + ": " + n + " games instead of " + o + ", keeping the saved file"); return null; }
     return data;
   }
