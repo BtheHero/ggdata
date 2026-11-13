@@ -40,6 +40,9 @@ jobs:
       - name: The week's best deals
         if: always()
         run: node jobs/weekly.js ps
+      - name: Light game list for the site's pages
+        if: always()
+        run: node jobs/lite.js ps
       - name: Upload the files
         if: always()
         run: node tools/upload.js push   # only the files this job changed

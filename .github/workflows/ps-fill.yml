@@ -32,6 +32,9 @@ jobs:
         run: node seed.js
       - name: Look up publishers, ratings and descriptions
         run: node run.js psfill
+      - name: Light game list for the site's pages
+        if: always()
+        run: node jobs/lite.js ps
       - name: Upload the files
         if: always()
         run: node tools/upload.js push   # only the files this job changed
