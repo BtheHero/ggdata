@@ -6,7 +6,8 @@
 // Each person gets at most one email and one notification a run, listing everything new. A game is only mentioned again
 // when its price drops further, or after its sale ended and a new one started (data/alerts_sent.json remembers).
 //
-// Secrets: SOURCE_API, ALERT_KEY, RESEND_API_KEY (email), VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (push).
+// Secrets: SOURCE_API, ALERT_KEY, RESEND_API_KEY (email), VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (push),
+// FCM_SERVICE_ACCOUNT (the app's notifications: the Firebase project's service account key, the whole JSON file).
 // ALERTS_DRY=1: logs what would be sent and sends nothing.
 const fs = require("fs"), path = require("path");
 const DATA = path.resolve(process.env.DATA_DIR || "data");
@@ -18,6 +19,38 @@ const slug = t => String(t || "game").toLowerCase().normalize("NFKD").replace(/[
 const usd = v => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ---------- the app's notifications (Firebase Cloud Messaging) ----------
+// A Google access token from the service account (a signed JWT exchanged at Google's token endpoint), then one
+// request per phone. Phones Firebase says are gone (uninstalled, signed out) are reported back like browsers.
+let FCM = null;
+async function fcmSetup() {
+  const raw = process.env.FCM_SERVICE_ACCOUNT;
+  if (!raw) return null;
+  let sa;
+  try { sa = JSON.parse(raw); } catch (e) { console.log("FCM_SERVICE_ACCOUNT isn't valid JSON: no app notifications"); return null; }
+  const b64 = o => Buffer.from(JSON.stringify(o)).toString("base64url"), now = Math.floor(Date.now() / 1000);
+  const head = b64({ alg: "RS256", typ: "JWT" }), body = b64({ iss: sa.client_email, scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 });
+  const sig = require("crypto").createSign("RSA-SHA256").update(head + "." + body).sign(sa.private_key).toString("base64url");
+  const r = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: "grant_type=" + encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer") + "&assertion=" + head + "." + body + "." + sig });
+  const t = await r.json().catch(() => ({}));
+  if (!t.access_token) { console.log("Firebase didn't give an access token (" + r.status + "): no app notifications"); return null; }
+  return { project: sa.project_id, token: t.access_token };
+}
+// true: sent; "gone": the phone's token is no longer valid; false: failed
+async function fcmSend(token, n) {
+  const r = await fetch(`https://fcm.googleapis.com/v1/projects/${FCM.project}/messages:send`, { method: "POST",
+    headers: { Authorization: "Bearer " + FCM.token, "Content-Type": "application/json" },
+    body: JSON.stringify({ message: { token, notification: { title: n.title, body: n.body }, data: { url: n.url, tag: n.tag },
+      android: { collapse_key: n.tag, notification: { tag: n.tag, channel_id: "deals" } }, apns: { headers: { "apns-collapse-id": n.tag } } } }) });
+  if (r.ok) return true;
+  const e = await r.text();
+  if (r.status === 404 || /UNREGISTERED|registration-token-not-registered|INVALID_ARGUMENT/.test(e) && /token/i.test(e)) return "gone";
+  console.log("App notification failed (" + r.status + "): " + e.slice(0, 200));
+  return false;
+}
 
 // Every game's US price: the full lists, then the deals (more exact: sale end, editions on sale)
 function prices() {
@@ -73,9 +106,10 @@ async function main() {
     webpush = require("web-push");
     webpush.setVapidDetails("mailto:alerts@" + new URL(API).hostname, process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
   }
+  FCM = await fcmSetup().catch(e => { console.log("Firebase setup failed: " + e.message); return null; });
   const mail = process.env.RESEND_API_KEY;
-  let emails = 0, pushes = 0, people = 0;
-  const gone = [];
+  let emails = 0, pushes = 0, apps = 0, people = 0;
+  const gone = [], goneFcm = [];
   for (const u of feed.users || []) {
     const mine = sent[u.uid] || {}, wish = new Set(u.wish || []), targets = u.targets || {};
     const items = [];
@@ -101,11 +135,19 @@ async function main() {
         await sleep(600);   // Resend allows a few emails a second
       }
     }
+    const a = list[0], note = {
+      title: list.length > 1 ? list.length + " games you're watching have new prices" : (a.kind === "target" ? "Your price alert: " : "On sale: ") + a.x.title,
+      body: list.length > 1 ? list.slice(0, 3).map(i => i.x.title + " " + usd(i.x.price)).join(" · ") : usd(a.x.price) + (a.x.msrp > a.x.price ? " (was " + usd(a.x.msrp) + ")" : ""),
+      url: list.length > 1 ? "/deals?wl=1" : pageUrl(a.id, a.x).slice(SITE.length), tag: "gdt-alert" };
+    if (FCM && (u.fcm || []).length) {
+      for (const t of u.fcm) {
+        if (DRY) { console.log("[dry] app: " + note.title); delivered = true; continue; }
+        const res = await fcmSend(t, note).catch(e => { console.log("App notification failed: " + e.message); return false; });
+        if (res === true) { apps++; delivered = true; } else if (res === "gone") goneFcm.push(t);
+      }
+    }
     if (webpush && (u.push || []).length) {
-      const a = list[0], payload = JSON.stringify({
-        title: list.length > 1 ? list.length + " games you're watching have new prices" : (a.kind === "target" ? "Your price alert: " : "On sale: ") + a.x.title,
-        body: list.length > 1 ? list.slice(0, 3).map(i => i.x.title + " " + usd(i.x.price)).join(" · ") : usd(a.x.price) + (a.x.msrp > a.x.price ? " (was " + usd(a.x.msrp) + ")" : ""),
-        url: list.length > 1 ? "/deals?wl=1" : pageUrl(a.id, a.x).slice(SITE.length), tag: "gdt-alert" });
+      const payload = JSON.stringify(note);
       for (const s of u.push) {
         if (DRY) { console.log("[dry] push: " + payload.slice(0, 120)); delivered = true; continue; }
         try { await webpush.sendNotification(s, payload, { TTL: 86400 }); pushes++; delivered = true; }
@@ -115,12 +157,12 @@ async function main() {
     if (delivered) { list.forEach(i => { mine[i.id] = { p: i.x.price, d: today }; }); people++; }
     if (Object.keys(mine).length) sent[u.uid] = mine; else delete sent[u.uid];
   }
-  if (gone.length && !DRY) await fetch(API, { method: "POST", body: JSON.stringify({ action: "alert_gone", key: process.env.ALERT_KEY, endpoints: gone }) }).catch(() => {});
+  if ((gone.length || goneFcm.length) && !DRY) await fetch(API, { method: "POST", body: JSON.stringify({ action: "alert_gone", key: process.env.ALERT_KEY, endpoints: gone, fcm: goneFcm }) }).catch(() => {});
   // people no longer in the list (alerts off, account deleted): forgotten
   const live = new Set((feed.users || []).map(u => u.uid));
   Object.keys(sent).forEach(uid => { if (!live.has(uid)) delete sent[uid]; });
   if (!DRY) fs.writeFileSync(path.join(DATA, "alerts_sent.json"), JSON.stringify(sent));
-  console.log("Alerts: " + (feed.users || []).length + " people with alerts on, " + people + " told, " + emails + " emails, " + pushes + " notifications, " +
-              gone.length + " expired subscriptions" + (mail ? "" : " (no RESEND_API_KEY: no emails)") + (webpush ? "" : " (no VAPID keys: no notifications)") + (DRY ? " [dry run]" : ""));
+  console.log("Alerts: " + (feed.users || []).length + " people with alerts on, " + people + " told, " + emails + " emails, " + pushes + " browser notifications, " + apps + " app notifications, " +
+              (gone.length + goneFcm.length) + " expired subscriptions" + (mail ? "" : " (no RESEND_API_KEY: no emails)") + (webpush ? "" : " (no VAPID keys: no browser notifications)") + (FCM ? "" : " (no FCM_SERVICE_ACCOUNT: no app notifications)") + (DRY ? " [dry run]" : ""));
 }
 main().catch(e => { console.log("Alerts failed: " + e.message); process.exit(1); });

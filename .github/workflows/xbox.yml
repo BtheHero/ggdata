@@ -43,6 +43,9 @@ jobs:
       - name: Add-ons on sale and the game pages
         if: always()
         run: node run.js pages
+      - name: The week's best deals
+        if: always()
+        run: node jobs/weekly.js xbox
       - name: Upload the files
         if: always()
         run: node tools/upload.js push   # only the files this job changed

@@ -1,5 +1,5 @@
 # Sale and price alerts (jobs/alerts.js): after each Xbox and PlayStation run, emails and push notifications to the
-# site's accounts that turned alerts on. Secrets: SOURCE_API, ALERT_KEY, RESEND_API_KEY, VAPID_PRIVATE_KEY.
+# site's accounts that turned alerts on. Secrets: SOURCE_API, ALERT_KEY, RESEND_API_KEY, VAPID_PRIVATE_KEY, FCM_SERVICE_ACCOUNT (optional).
 name: Alerts
 on:
   workflow_run:
@@ -27,6 +27,7 @@ jobs:
       ALERT_KEY: ${{ secrets.ALERT_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+      FCM_SERVICE_ACCOUNT: ${{ secrets.FCM_SERVICE_ACCOUNT }}   # optional: the app's notifications
       VAPID_PUBLIC_KEY: BFJdxpQ_aVxLdukPrcfd1b-UtXp6CMw67E-uoxy8ofwm8M_ys7139NgHEDUR4crZ_xa3qn3FwBABLa237PubaxY   # public by design (also in the site's config.js)
       ALERTS_DRY: ${{ inputs.dry && '1' || '' }}
     steps:

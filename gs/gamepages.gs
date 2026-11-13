@@ -303,7 +303,7 @@ function createGamePagesTrigger() {
 
 // Builds and saves the shard files of one platform ("" = Xbox, "PS_" = PlayStation). Returns the number of games.
 // Each game: {t title, p publisher, i cover, q square art, pr price, m regular price, c currency, e sale end,
-// l at lowest price, s subscriptions, ti tiers, r release date, g genres, u store url, ra [stars, ratings],
+// l at lowest price, ds deal score (1-100), lo lowest price ever, s subscriptions, ti tiers, r release date, g genres, u store url, ra [stars, ratings],
 // mc [Metascore, Metacritic slug], pc PC only, h price history [[yyyymmdd, price]...], k popularity rank,
 // pi a PlayStation game's main product id, d store description}.
 // PlayStation product ids that belong to a whole-game page get {a: that page's id}.
@@ -379,7 +379,7 @@ function gamePagesFor_(pre) {
     const target = games[id] && games[id].a ? games[id].a : id;
     const e = games[target] || (games[target] = { t: g.title, p: g.publisher || "", i: g.image || "", c: g.currency || "USD", s: [], ti: [] });
     Object.assign(e, {
-      pr: Number(g.price) || 0, m: Number(g.msrp) || Number(g.price) || 0, e: g.saleEnds || undefined, l: g.atLow ? 1 : undefined,
+      pr: Number(g.price) || 0, m: Number(g.msrp) || Number(g.price) || 0, e: g.saleEnds || undefined, l: g.atLow ? 1 : undefined, ds: g.dealScore || undefined, lo: g.lowEver || undefined,
       q: g.sq || e.q, g: (g.genres && g.genres.length) ? g.genres : e.g, u: g.url || e.u,
       r: e.r || g.released || g.releaseDate || relOf(id) || undefined, k: e.k || g.rank || undefined
     });
