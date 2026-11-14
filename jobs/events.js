@@ -68,7 +68,8 @@ for (const e of EVENTS) {
         price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD", low: !!g.atLow, ds: g.dealScore || null,
         ends: g.saleEnds || null, pc: !!g.pc, genres: (g.genres || []).slice(0, 3), subs: g.subs || [], tiers: g.tiers || [], release: null, date: null });
     });
-  event = { key: e.key, name: e.name, from, to, ends: endsAt, count: inSale.length, games };
+  const top = Math.max(...inSale.map(g => Math.round((1 - g.price / g.msrp) * 100)));   // "up to X% off"
+  event = { key: e.key, name: e.name, from, to, ends: endsAt, count: inSale.length, top, games };
   break;
 }
 
