@@ -303,7 +303,7 @@ function createGamePagesTrigger() {
 
 // Builds and saves the shard files of one platform ("" = Xbox, "PS_" = PlayStation). Returns the number of games.
 // Each game: {t title, p publisher, i cover, q square art, pr price, m regular price, c currency, e sale end,
-// l at lowest price, ds deal score (1-100), lo lowest price ever, s subscriptions, ti tiers, r release date, g genres, u store url, ra [stars, ratings],
+// ds deal score (1-100), lo lowest tracked price, l a new low, s subscriptions, ti tiers, r release date, g genres, u store url, ra [stars, ratings],
 // mc [Metascore, Metacritic slug], pc PC only, h price history [[yyyymmdd, price]...], k popularity rank,
 // pi a PlayStation game's main product id, d store description}.
 // PlayStation product ids that belong to a whole-game page get {a: that page's id}.
@@ -433,24 +433,12 @@ function gamePagesFor_(pre) {
   });
   console.log((ps ? "PlayStation" : "Xbox") + " add-ons matched to their game: " + attachAddOns_(games, ps ? psAddOnsSeen_(games) : xAddOnsAll_(), ps));
 
-  // older prices read from the Internet Archive (jobs/archive.js) go before the site's own history
-  try {
-    const arch = JSON.parse(DriveApp.getFileById(ps ? "ps_archive.json" : "xbox_archive.json").getBlob().getDataAsString()).h || {};
-    let n = 0;
-    Object.keys(arch).forEach(id => {
-      const g = games[id];
-      if (!g || g.a || !arch[id].length) return;
-      const own = g.h || [], first = own.length ? own[0][0] : 99999999;
-      const pts = arch[id].filter(p => p[0] < first).map(p => [p[0], p[1]]).concat(own)
-        .filter((p, i, a) => i === 0 || Math.abs(a[i - 1][1] - p[1]) > 0.02);   // only the changes
-      if (pts.length > own.length) { g.h = pts; n++; }
-    });
-    console.log((ps ? "PlayStation" : "Xbox") + " games with older prices from the Internet Archive: " + n);
-  } catch (e) { /* no archive file yet */ }
   addRelated_(games, ps);
   // PlayStation: a game's editions are products of its one store page (concept). Their names and prices come from the
-  // edition lookups (ps_cache.json eprice); an edition with a page of its own (on sale) links there, the others to the store.
+  // edition lookups (ps_cache.json eprice); an edition with a page of its own (on sale) links there. The others get a
+  // page here too (the game's details with the edition's name and price), so the row never sends people to the store.
   if (ps) {
+    const made = {};   // edition pages made here: id -> [the game's id, its other editions' rows]
     const ep = psCache.eprice || {}, art = g => String(g.q || g.i || "").replace("https://image.api.playstation.com/vulcan/ap/rnd/", "~");
     const NOT_ED = /\b(upgrade|add-?ons?|season pass|expansion|dlc|soundtrack|currency|points|coins|virtual)\b/i;
     Object.keys(games).forEach(id => {
@@ -462,14 +450,26 @@ function gamePagesFor_(pre) {
         // (a franchise page holds several games: "Call of Duty" has Modern Warfare 4, Black Ops 7…; only this game's editions)
         if (!e || !e[3] || e[1] === null || NOT_ED.test(e[3]) || psGameKey_(e[3]) !== game) return;
         if (!shown.done && e[0] === g.pr && e[1] === g.m) { shown.done = true; return; }   // the edition the page shows
-        const own = games[pid] && !games[pid].a;
-        list.push([pid, e[3], art(own ? games[pid] : g), e[0] || 0, e[1] || 0, own ? undefined : "https://store.playstation.com/en-us/product/" + pid]);
+        const was = games[pid];
+        if (was && was.a === id) return;   // the edition this page shows, under its product id
+        const to = was && was.a && games[was.a] && !games[was.a].a ? was.a : pid;   // another page's product: that page
+        if (to !== pid && to === id) return;
+        if (!was && !made[pid]) {
+          games[pid] = { t: e[3], p: g.p, i: g.i, q: g.q, pr: e[0] || 0, m: e[1] || e[0] || 0, c: g.c, s: g.s, ti: g.ti, r: g.r, g: g.g,
+                         d: g.d, ra: g.ra, mc: g.mc, pc: g.pc, h: hist[pid] || undefined, u: "https://store.playstation.com/en-us/product/" + pid };
+          made[pid] = [id];
+        }
+        list.push([to, to === pid ? e[3] : games[to].t, art(to === pid && !made[pid] ? games[pid] : g), e[0] || 0, e[1] || 0]);
       });
       delete g.pe;
       if (!list.length) return;
       const have = new Set(list.map(x => x[0]));
       g.ed = list.sort((a, b) => (a[4] || 1e9) - (b[4] || 1e9)).concat((g.ed || []).filter(x => !have.has(x[0]))).slice(0, 10);
+      // each edition page made here lists the game and its other editions
+      const self = [id, g.t, art(g), g.pr || 0, g.m || 0];
+      list.forEach(x => { if (made[x[0]] && made[x[0]][0] === id) games[x[0]].ed = [self].concat(list.filter(y => y[0] !== x[0])).sort((a, b) => (a[4] || 1e9) - (b[4] || 1e9)).slice(0, 10); });
     });
+    console.log("PlayStation edition pages made: " + Object.keys(made).length);
   }
 
   // Home page "Popular add-ons on sale": expansions and season passes on sale, their game's store ratings first

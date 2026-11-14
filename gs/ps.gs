@@ -516,7 +516,6 @@ function exportPlayStation_(opts) {
     const d = cache.details[g.productId];
     g.tiers = psFixTrial_(g.tiers, d && d.con, trials);
     g.subs = psSubs_(g.tiers);
-    if (d && d.con) g.concept = d.con;   // (for the archive's prices in psUpdateHistory_, then removed)
   });
 
   // 4. Price history: all-time lows and newest discounts
@@ -709,22 +708,18 @@ function psUpdateHistory_(games, onSale) {
     if (base && last && last[1] < base - 0.02) list.push([today, base]);   // sale over: back to full price
   });
   data.updated = today;
-  const arch = archivePrices_(true), scores = psReadJson_("PS_SCORES_FILE_ID", {}), stars = psReadJson_("PS_RATINGS_FILE_ID", {});
+  const scores = psReadJson_("PS_SCORES_FILE_ID", {}), stars = psReadJson_("PS_RATINGS_FILE_ID", {});
   games.forEach(g => {
     const list = data.h[g.productId] || [], n = list.length;
-    // the archive keeps whole games (concepts): the game's, when this deal is its standard edition
-    // (only the archive prices at this deal's regular price: another edition's would be a different price)
-    const old = (arch[g.productId] || (g.concept && arch[g.concept]) || []).filter(x => samePrice_(x[2], g.msrp));
-    delete g.concept;
     g.newSale = n >= 2 && list[n - 1][1] < list[n - 2][1] - 0.02 ? list[n - 1][0] : 0;
-    const st = stars[g.productId], d = dealScore_(g, list, old, st && st[1] ? st : null, mcNum_(scores[g.productId]));
-    g.atLow = !!(d && d.ever);   // (as on Xbox: more than 3 months of known prices and an earlier sale)
+    const st = stars[g.productId], d = dealScore_(g, list, st && st[1] ? st : null, mcNum_(scores[g.productId]));
+    g.atLow = !!(d && d.ever);   // a new low (as on Xbox: the first time it's this cheap)
     g.dealScore = d ? d.score : undefined;
     g.lowEver = d ? d.low : undefined;
   });
   saveJsonToDrive_(data, "ps_history.json", "PS_HISTORY_FILE_ID");
   Logger.log("PlayStation history: " + Object.keys(data.h).length + " games tracked since " + data.since +
-             ", " + games.filter(g => g.atLow).length + " at their lowest price ever, " + games.filter(g => g.dealScore >= 80).length + " deals scored 80+");
+             ", " + games.filter(g => g.atLow).length + " at a new low, " + games.filter(g => g.dealScore >= 80).length + " deals scored 80+");
 }
 
 // Every game of the full list (concepts, on sale or not): its price whenever it changes, like the deals above.

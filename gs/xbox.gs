@@ -970,24 +970,21 @@ function wishCounts_() {
 // and $10.00 the next (80% off $49.99 is $9.998), which isn't a price change
 const samePrice_ = (a, b) => Math.abs(Number(a) - Number(b)) <= 0.02;
 
-// ---------- Lowest price ever and deal score ----------
-// Older prices read from the Internet Archive (jobs/archive.js): {id: [[yyyymmdd, price, regular price], ...]}
-function archivePrices_(ps) {
-  try { return JSON.parse(DriveApp.getFileById(ps ? "ps_archive.json" : "xbox_archive.json").getBlob().getDataAsString()).h || {}; }
-  catch (e) { return {}; }
-}
-// A deal's score out of 100, and its lowest price ever. list: the site's own price changes [[yyyymmdd, price]],
-// old: the archive's [[yyyymmdd, price, regular]], stars: [average, count], mc: Metascore.
+// ---------- New low and deal score ----------
+// A deal's score out of 100, its lowest known price and whether it's a new low. list: the site's own price changes
+// [[yyyymmdd, price]], stars: [average, count], mc: Metascore.
+// New low (ever): the first time the game is this cheap: below every earlier price we know (not just equal to an
+// earlier sale's), and it has been on sale before (a first sale isn't a "new low": we don't know its older prices)
 //   discount (up to 40): 80% off or more is full marks
-//   price vs the lowest ever (up to 25): at the lowest ever is full marks
+//   price vs the lowest tracked (up to 25): at the lowest tracked is full marks
 //   how rarely it goes on sale (up to 15): never before is full marks, 6+ sales a year is 3
 //   how good the game is (up to 20): Metascore 95 (or 5 stars) is full marks
 // (unknown parts get a little: a short price history, no Metascore or too few ratings)
 const mcNum_ = v => Number(Array.isArray(v) ? v[0] : v) || 0;   // scores files: {id: [Metascore, slug]}
-function dealScore_(g, list, old, stars, mc) {
+function dealScore_(g, list, stars, mc) {
   const price = Number(g.price) || 0, msrp = Number(g.msrp) || 0;
   if (!(msrp > price) || price <= 0) return null;
-  const pts = (old || []).map(p => [p[0], p[1], p[2]]).concat((list || []).map(p => [p[0], p[1], msrp]))
+  const pts = (list || []).map(p => [p[0], p[1], msrp])
     .filter(p => p[1] > 0).sort((a, b) => a[0] - b[0]);
   const earlier = pts.length && samePrice_(pts[pts.length - 1][1], price) ? pts.slice(0, -1) : pts;   // (the current price left out)
   const low = earlier.length ? Math.min(price, Math.min.apply(null, earlier.map(p => p[1]))) : price;
@@ -1003,7 +1000,7 @@ function dealScore_(g, list, old, stars, mc) {
   const Q = mc >= 50 ? Math.max(0, Math.min(20, (mc - 50) / 45 * 20))
           : stars && stars[1] >= 30 ? Math.max(0, Math.min(20, (stars[0] - 3) / 2 * 20)) : 4;
   return { score: Math.max(1, Math.min(100, Math.round(D + L + R + Q))), low: Math.round(low * 100) / 100,
-           ever: span > 90 && price <= low + 0.02 && earlier.some(p => p[1] < (p[2] || msrp) - 0.02) };
+           ever: earlier.length > 0 && price < Math.min.apply(null, earlier.map(p => p[1])) - 0.02 && earlier.some(p => p[1] < (p[2] || msrp) - 0.02) };
 }
 
 function updateHistory_(catalog, games) {
@@ -1026,13 +1023,13 @@ function updateHistory_(catalog, games) {
   });
   data.updated = today;
 
-  const arch = archivePrices_(false), scores = psReadJson_("SCORES_FILE_ID", {});
+  const scores = psReadJson_("SCORES_FILE_ID", {});
   games.forEach(g => {
-    const id = String(g.productId).toUpperCase(), list = data.h[g.productId] || [], old = arch[g.productId] || arch[id] || [];
+    const id = String(g.productId).toUpperCase(), list = data.h[g.productId] || [];
     const n = list.length;   // date (YYYYMMDD) the current, lower price started
     g.newSale = n >= 2 && list[n - 1][1] < list[n - 2][1] - 0.02 ? list[n - 1][0] : 0;
-    const d = dealScore_(g, list, old, RATINGS[id], mcNum_(scores[id] || scores[g.productId]));
-    // at the lowest price ever: with more than 3 months of known prices (the archive's too) and an earlier sale
+    const d = dealScore_(g, list, RATINGS[id], mcNum_(scores[id] || scores[g.productId]));
+    // a new low: the first time it's this cheap (and it has been on sale before)
     g.atLow = !!(d && d.ever);
     g.dealScore = d ? d.score : undefined;
     g.lowEver = d ? d.low : undefined;
@@ -1040,7 +1037,7 @@ function updateHistory_(catalog, games) {
 
   saveJsonToDrive_(data, "xbox_history.json", "HISTORY_FILE_ID");
   Logger.log("History: " + Object.keys(data.h).length + " games tracked since " + data.since +
-             ", " + games.filter(g => g.atLow).length + " at their lowest price ever, " + games.filter(g => g.dealScore >= 80).length + " deals scored 80+");
+             ", " + games.filter(g => g.atLow).length + " at a new low, " + games.filter(g => g.dealScore >= 80).length + " deals scored 80+");
 }
 
 // True when the store lists the game for PC only (no Xbox console).
