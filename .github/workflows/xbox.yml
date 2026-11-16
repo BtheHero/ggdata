@@ -52,6 +52,9 @@ jobs:
       - name: Light game list for the site's pages
         if: always()
         run: node jobs/lite.js xbox
+      - name: The site's lists (best of the year, upcoming, publishers, most wanted…)
+        if: always()
+        run: node jobs/lists.js xbox
       - name: Upload the files
         if: always()
         run: node tools/upload.js push   # only the files this job changed
