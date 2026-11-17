@@ -23,6 +23,10 @@ function buildCompare() {
   if (!cat || !cat.games) { console.log("Compare: no full game list"); return; }
   const games = {}, currency = { US: "USD" };
   cat.games.forEach(r => { if (r[0] && Number(r[3]) >= 0) (games[String(r[0]).toUpperCase()] = {}).US = [Number(r[3]) || 0, Number(r[4]) || Number(r[3]) || 0]; });
+  // add-ons (not in the full game list): on sale, then every other one at its regular price
+  const allAo = (read("xbox_addons_all.json") || {}).a || {};
+  ((read("xbox_addons.json") || {}).games || []).forEach(g => { const id = String(g.productId || "").toUpperCase(); if (id && !games[id]) games[id] = { US: [Number(g.price) || 0, Number(g.msrp) || Number(g.price) || 0] }; });
+  Object.keys(allAo).forEach(k => { const id = k.toUpperCase(); if (!games[id] && Number(allAo[k][2]) >= 0) games[id] = { US: [Number(allAo[k][2]) || 0, Number(allAo[k][2]) || 0] }; });
   Object.keys(__XBOX.REGIONS).filter(c => c !== "US").forEach(code => {
     const f = read("xbox_prices_" + code + ".json");
     if (!f || !f.prices) return;
@@ -39,6 +43,119 @@ function buildCompare() {
   const now = new Date().toISOString();
   shards.forEach((g, n) => fs.writeFileSync(path.join(dir, "compare", "xbox-" + n + ".json"), JSON.stringify({ updatedAt: now, currency, rates, games: g })));
   console.log("Compare: " + Object.keys(games).length + " games in " + Object.keys(currency).length + " regions");
+  try { updateRegionHistory("xbox", games, currency); } catch (e) { console.log("Regional history failed: " + e.message); }
+}
+
+// ---------- Xbox: prices the regional crawls miss ----------
+// A region's price file comes from that store's browse list, which leaves out some games the US list has (and every
+// add-on). The site then showed the US price converted, as if the game weren't sold there. So the games of the US
+// lists that a region's file doesn't have are looked up in that market's product data (displaycatalog), a part at a
+// time (GAP_MAX a region per run): the US deals and add-ons on sale first, then games never checked, then the oldest.
+// Kept in data/xbox_gaps_<code>.json {p: {id: [price, msrp, checked ms] or [null, null, checked ms] when not sold there}};
+// merged into the region's file (prices, and na: ids not sold there).
+const GAP_MAX = 2400, GAP_SALE_HOURS = 10, GAP_RECHECK_DAYS = 6;
+const MARKET = { UK: "GB", EU: "IE" };
+function dcPrice(p) {
+  const now = Date.now();
+  let best = null;
+  (p.DisplaySkuAvailabilities || []).forEach(sa => {
+    const sp = (sa.Sku && sa.Sku.Properties) || {};
+    if (sp.IsTrial) return;
+    (sa.Availabilities || []).forEach(a => {
+      if (!(a.Actions || []).includes("Purchase")) return;
+      const c = a.Conditions || {}, st = Date.parse(c.StartDate), en = Date.parse(c.EndDate);
+      if (st > now || en <= now) return;
+      const pr = a.OrderManagementData && a.OrderManagementData.Price;
+      if (!pr || !(Number(pr.MSRP) >= 0) || !(Number(pr.ListPrice) >= 0)) return;
+      if (!best || pr.ListPrice < best[0]) best = [Number(pr.ListPrice), Number(pr.MSRP) || Number(pr.ListPrice), pr.CurrencyCode];
+    });
+  });
+  return best;
+}
+function fillRegionGaps(code) {
+  const dir = rt.DATA_DIR, read = f => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch (e) { return null; } };
+  const file = "xbox_prices_" + code + ".json", rf = read(file);
+  if (!rf || !rf.prices || !rf.currency) return;
+  // (a file the crawl didn't replace this run still has the last run's looked-up prices: rf.gap)
+  const have = {}, merged = new Set(rf.gap || []);
+  Object.keys(rf.prices).forEach(id => { if (!merged.has(id)) have[id.toUpperCase()] = 1; });
+  const sale = [], rest = [];
+  ((read("xbox_sales.json") || {}).games || []).forEach(g => g.productId && sale.push(String(g.productId).toUpperCase()));
+  ((read("xbox_addons.json") || {}).games || []).forEach(g => g.productId && sale.push(String(g.productId).toUpperCase()));
+  ((read("xbox_catalog.json") || {}).games || []).forEach(r => r[0] && rest.push(String(r[0]).toUpperCase()));
+  Object.keys((read("xbox_addons_all.json") || {}).a || {}).forEach(id => rest.push(id.toUpperCase()));
+  const gf = "xbox_gaps_" + code + ".json", gaps = (read(gf) || {}).p || {}, now = Date.now();
+  const saleSet = new Set(sale);
+  const due = id => { const g = gaps[id]; return !g ? 0 : saleSet.has(id) ? (now - g[2] > GAP_SALE_HOURS * 36e5 ? 1 : 9) : now - g[2] > GAP_RECHECK_DAYS * 864e5 ? 2 : 9; };
+  const want = Array.from(new Set(sale.concat(rest))).filter(id => !have[id]);
+  // the US sales and add-ons on sale whose check is old, then games never checked, then the oldest checks
+  const order = want.map(id => [id, saleSet.has(id) && (!gaps[id] || due(id) === 1) ? 0 : !gaps[id] ? 1 : due(id)]).filter(x => x[1] < 9)
+    .sort((a, b) => a[1] - b[1] || ((gaps[a[0]] || [0, 0, 0])[2] - (gaps[b[0]] || [0, 0, 0])[2])).slice(0, GAP_MAX).map(x => x[0]);
+  const market = MARKET[code] || code;
+  let found = 0, none = 0;
+  for (let i = 0; i < order.length; i += 160) {
+    const chunks = [];
+    for (let k = i; k < Math.min(i + 160, order.length); k += 20) chunks.push(order.slice(k, k + 20));
+    let res = [];
+    try {
+      res = UrlFetchApp.fetchAll(chunks.map(c => ({ url: "https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=" + c.join(",") +
+        "&market=" + market + "&languages=en-US&MS-CV=DGU1mcuYo0WMMp%2BF.1", muteHttpExceptions: true })));
+    } catch (e) { console.log(code + " gap lookup failed: " + e.message); break; }
+    res.forEach((r, n) => {
+      let d = null;
+      try { if (r && r.getResponseCode() === 200) d = JSON.parse(r.getContentText()); } catch (e) {}
+      if (!d) return;   // no answer: asked again next run
+      const seen = {};
+      (d.Products || []).forEach(p => {
+        const id = String(p.ProductId || "").toUpperCase(), pr = dcPrice(p);
+        seen[id] = 1;
+        if (pr && pr[2] === rf.currency) { gaps[id] = [pr[0], pr[1], now]; found++; }
+        else { gaps[id] = [null, null, now]; none++; }
+      });
+      chunks[n].forEach(id => { if (!seen[id]) { gaps[id] = [null, null, now]; none++; } });   // not sold in that market
+    });
+  }
+  // the region's file: its own prices first, then the looked-up ones; na = not sold there
+  const na = [], gap = [];
+  Object.keys(gaps).forEach(id => {
+    const g = gaps[id];
+    if (have[id]) { delete gaps[id]; return; }   // the region's own list has it now
+    if (now - g[2] > 30 * 864e5) { delete gaps[id]; return; }
+    if (g[0] === null) { na.push(id); delete rf.prices[id]; }
+    else { rf.prices[id] = [g[0], g[1], 1e6, g[1] > g[0] ? Math.round((1 - g[0] / g[1]) * 100) : 0]; gap.push(id); }
+  });
+  rf.na = na;
+  rf.gap = gap;
+  fs.writeFileSync(path.join(dir, gf), JSON.stringify({ updatedAt: new Date().toISOString(), p: gaps }));
+  fs.writeFileSync(path.join(dir, file), JSON.stringify(rf));
+  console.log(code + " prices the crawl missed: looked up " + order.length + " of " + want.length + " (" + found + " sold there, " + none + " not); " + na.length + " known not sold there");
+}
+
+// ---------- each region's price history ----------
+// The game pages' price chart is the US store's (g.h, in dollars); in another region the page shows that region's own
+// history, kept here from each run's regional prices (the compare files): data/rhist/<xbox|ps>-<code>.json
+// {currency, h: {id: [[yyyymmdd, price], ...]}}, one entry per change. (Started with this file: older changes aren't known.)
+function updateRegionHistory(plat, games, currency) {
+  const dir = rt.DATA_DIR, today = Number(new Date().toISOString().slice(0, 10).replace(/-/g, ""));
+  fs.mkdirSync(path.join(dir, "rhist"), { recursive: true });
+  Object.keys(currency).filter(c => c !== "US").forEach(code => {
+    const f = path.join(dir, "rhist", plat + "-" + code + ".json");
+    let d = null;
+    try { d = JSON.parse(fs.readFileSync(f, "utf8")); } catch (e) {}
+    if (!d || d.currency !== currency[code]) d = { currency: currency[code], h: {} };   // a new currency: a new history
+    let changed = 0;
+    Object.keys(games).forEach(id => {
+      const p = games[id][code];
+      if (!p || !(p[0] >= 0)) return;
+      const h = d.h[id] || (d.h[id] = []), last = h[h.length - 1];
+      if (last && Math.abs(last[1] - p[0]) <= 0.02 * Math.max(1, p[0] / 100)) return;
+      if (last && last[0] === today) last[1] = p[0]; else h.push([today, p[0]]);
+      changed++;
+    });
+    d.updatedAt = new Date().toISOString();
+    fs.writeFileSync(f, JSON.stringify(d));
+    if (changed) console.log("History " + plat + " " + code + ": " + changed + " price changes");
+  });
 }
 
 // PlayStation's price in every region for each game page (concepts, and deals by their own id):
@@ -67,6 +184,7 @@ function buildPsCompare() {
   const now = new Date().toISOString();
   shards.forEach((g, n) => fs.writeFileSync(path.join(dir, "compare", "ps-" + n + ".json"), JSON.stringify({ updatedAt: now, currency, rates, games: g })));
   console.log("PlayStation compare: " + Object.keys(games).length + " games in " + Object.keys(currency).length + " regions");
+  try { updateRegionHistory("ps", games, currency); } catch (e) { console.log("Regional history failed: " + e.message); }
 }
 
 const jobs = {
@@ -130,6 +248,7 @@ const jobs = {
     try { exportXboxAddOns(); } catch (e) { console.log("Add-ons failed: " + e.message); }
     try { xAddOnRelations_(); } catch (e) { console.log("Add-on relations failed: " + e.message); }
     try { xPublisherIds_(); } catch (e) { console.log("Publisher ids failed: " + e.message); }
+    try { xBundleContents_(); } catch (e) { console.log("Bundle contents failed: " + e.message); }
     console.log("== add-ons done (" + secs() + ")");
     const n = gamePagesFor_("");
     console.log("== Xbox game pages: " + n + " games (" + secs() + ")");
@@ -153,6 +272,7 @@ const jobs = {
       let ok = false;
       try { ok = exportRegion_(code); } catch (e) { console.log(code + " failed: " + e.message); }
       if (!ok) failed++;
+      try { fillRegionGaps(code); } catch (e) { console.log(code + " gaps failed: " + e.message); }
       console.log("== " + code + (ok ? " done" : " NOT updated") + " (" + secs() + ")");
     });
     try { buildCompare(); } catch (e) { console.log("Compare failed: " + e.message); }

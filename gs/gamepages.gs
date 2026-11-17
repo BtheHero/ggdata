@@ -103,7 +103,22 @@ function attachAddOns_(games, extra, ps) {
   });
   (extra || []).forEach(x => {
     if (games[x.id] && games[x.id].kd) return;   // on sale: already listed
-    if (place(x.id, x.t, x.kd, [x.id, x.t, art(x.a), x.m || 0, x.m || 0, x.kd || "Add-on", 0, x.o || 0])) more++;
+    const b = place(x.id, x.t, x.kd, [x.id, x.t, art(x.a), x.m || 0, x.m || 0, x.kd || "Add-on", 0, x.o || 0]);
+    if (!b) return;
+    more++;
+    // every add-on gets a page of its own (not only those on sale), with its game at the top
+    if (!games[x.id]) {
+      const gm = games[b];
+      games[x.id] = { t: x.t, p: gm.p || "", i: x.a || "", q: x.a || undefined, pr: x.m || 0, m: x.m || 0, c: gm.c || "USD", s: [], ti: [],
+                      kd: x.kd || "Add-on", ao: [b, gm.t], u: ps ? "https://store.playstation.com/en-us/product/" + x.id : undefined };
+    }
+  });
+  // the editions (bundles) that include an add-on, by the store's own add-on relations: its page says "Included in"
+  Object.keys(rel).forEach(k => {
+    const id = games[k] ? k : null, g = id && games[id];
+    if (!g || !g.kd || g.a) return;
+    const inb = ((rel[k] && rel[k][1]) || []).map(page).filter(x => x && x !== id && games[x] && !games[x].kd);
+    if (inb.length) g.inb = Array.from(new Set(inb)).slice(0, 12);
   });
   const off = r => r[4] > r[3] ? 1 - r[3] / r[4] : 0;
   Object.keys(lists).forEach(id => {
@@ -532,6 +547,44 @@ function gamePagesFor_(pre) {
     });
     console.log("PlayStation edition pages made: " + Object.keys(made).length);
   }
+
+  // Xbox editions (bundles): what each includes (g.inc: [[id, title, art, has a page, store product type]], its own page's
+  // "What's included"), each add-on's "Included in" (g.inb: edition ids, with the add-on relations' above), and on every
+  // page with other editions, what those include (g.edi: {edition id: [item titles]}, under each edition's card)
+  if (!ps) {
+    const bf = psReadJson_("XBUNDLES_FILE_ID", { b: {}, n: {} }), bb = bf.b || {}, bn = bf.n || {};
+    const pg = id => { const k = games[id] ? id : games[String(id).toUpperCase()] ? String(id).toUpperCase() : null; return !k ? null : games[k].a && games[games[k].a] ? games[k].a : k; };
+    const inb = {};
+    let n = 0;
+    Object.keys(bb).forEach(bid => {
+      const g = games[bid], items = bb[bid][0] || [];
+      if (!g || g.a || items.length < 2) return;
+      g.inc = items.map(x => {
+        const p = pg(x), nm = bn[x] || [];
+        const t = (p && games[p].t) || nm[0];
+        return t ? [p || x, t, (p && (games[p].q || games[p].i)) || nm[2] || "", p ? 1 : 0, nm[1] || ""] : null;
+      }).filter(Boolean).slice(0, 40);
+      if (g.inc.length < 2) { delete g.inc; return; }
+      n++;
+      items.forEach(x => { const p = pg(x); if (p && p !== bid && games[p].kd) (inb[p] = inb[p] || []).push(bid); });
+    });
+    Object.keys(inb).forEach(id => { games[id].inb = Array.from(new Set((games[id].inb || []).concat(inb[id]))).slice(0, 12); });
+    Object.keys(games).forEach(id => {
+      const g = games[id];
+      if (!g.ed || g.a) return;
+      const m = {};
+      g.ed.forEach(r => { const e = games[r[0]]; if (e && e.inc) m[r[0]] = e.inc.map(x => x[1]).slice(0, 12); });
+      if (Object.keys(m).length) g.edi = m;
+    });
+    console.log("Xbox editions with their contents: " + n + "; add-ons included in an edition: " + Object.keys(inb).length);
+  }
+  // "Included in": the editions' titles and art, for the add-on pages (g.inb ids -> [id, title, art])
+  Object.keys(games).forEach(id => {
+    const g = games[id];
+    if (!g.inb || !g.inb.length || !Array.isArray(g.inb) || Array.isArray(g.inb[0])) return;
+    g.inb = g.inb.filter(x => games[x] && games[x].t).map(x => [x, games[x].t, String(games[x].q || games[x].i || "").replace("https://image.api.playstation.com/vulcan/ap/rnd/", "~")]);
+    if (!g.inb.length) delete g.inb;
+  });
 
   // Home page "Popular add-ons on sale": expansions and season passes on sale, their game's store ratings first
   // (most first), up to 30 (the page shows 15, and hides the row under 7)

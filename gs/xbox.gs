@@ -384,11 +384,24 @@ function pickSquare_(product) {
   const url = a && a.url;
   return url ? (url.startsWith("//") ? "https:" + url : url) : null;
 }
+// The site shows covers in a 2:3 poster frame. Some games' "Poster" image isn't one (square or wide: SOULCALIBUR VI,
+// Minecraft), so when the store gives sizes, an image that really is portrait comes first; site.js fits any other.
+const portrait_ = (w, h) => Number(w) > 0 && Number(h) > 0 && Number(h) / Number(w) >= 1.3 && Number(h) / Number(w) <= 1.7;
+// displaycatalog images ([{ImagePurpose, Uri, Width, Height}]): the cover
+function dcPoster_(imgs) {
+  imgs = imgs || [];
+  return imgs.find(x => x.ImagePurpose === "Poster" && portrait_(x.Width, x.Height)) ||
+    imgs.find(x => /^(BoxArt|Poster|BrandedKeyArt|FeaturePromotionalSquareArt)$/.test(x.ImagePurpose) && portrait_(x.Width, x.Height)) ||
+    imgs.find(x => x.ImagePurpose === "Poster") || imgs.find(x => x.ImagePurpose === "BoxArt");
+}
 function pickImage_(product) {
   const imgs = product.images || {};
   const keys = ["poster", "boxArt", "featurePromotionalSquareArt", "titledHeroImage", "superHeroArt"];
   let url = null;
-  for (const k of keys) {
+  // a portrait image first, when the listing gives sizes
+  const tall = keys.concat(Object.keys(imgs)).find(k => imgs[k] && imgs[k].url && portrait_(imgs[k].width || imgs[k].Width, imgs[k].height || imgs[k].Height));
+  if (tall) url = imgs[tall].url;
+  for (const k of url ? [] : keys) {
     if (imgs[k] && imgs[k].url) { url = imgs[k].url; break; }
   }
   if (!url) {
@@ -495,7 +508,7 @@ function enrichGames_(games, startTime) {
           const props = p.Properties || {};
           g.genres = (props.Categories || [props.Category]).filter((x, i, a) => x && a.indexOf(x) === i);   // no repeats
           const imgs = (p.LocalizedProperties && p.LocalizedProperties[0] && p.LocalizedProperties[0].Images) || [];
-          const art = imgs.find(x => x.ImagePurpose === "Poster") || imgs.find(x => x.ImagePurpose === "BoxArt");
+          const art = dcPoster_(imgs);
           if (art && art.Uri) g.image = art.Uri.startsWith("//") ? "https:" + art.Uri : art.Uri;
           g.released = relDate_(p);
           let ends = Infinity;
@@ -754,7 +767,7 @@ function lookupProducts_(ids, noEditions) {
         (JSON.parse(r.getContentText()).Products || []).forEach(p => {
           const lp = (p.LocalizedProperties && p.LocalizedProperties[0]) || {};
           const imgs = lp.Images || [];
-          const art = imgs.find(x => x.ImagePurpose === "Poster") || imgs.find(x => x.ImagePurpose === "BoxArt");
+          const art = dcPoster_(imgs);
           const box = imgs.find(x => x.ImagePurpose === "BoxArt");
           const hero = imgs.find(x => x.ImagePurpose === "SuperHeroArt") || imgs.find(x => x.ImagePurpose === "TitledHeroArt");
           out[String(p.ProductId).toUpperCase()] = {
@@ -1088,7 +1101,7 @@ function json_(o) {
 // The Metacritic score (and the release date) for the pop-up, read from Metacritic's own site backend
 // (backend.metacritic.com), the same data its pages use. No key needed. Results are cached for 6 hours.
 function cleanTitle_(t) {
-  return String(t || "").replace(/[™®©]/g, "").replace(/\s*[\(\[].*?[\)\]]/g, "")
+  return String(t || "").replace(/[™®©℠]/g, "").normalize("NFKC").replace(/\s*[\(\[].*?[\)\]]/g, "")
     .replace(/\s*[-–:|]?\s*\b(PS4|PS5)\b(\s*(&|and|\/|\+)\s*(PS4|PS5)\b)?\s*$/i, "")   // "… PS4 & PS5" on PlayStation titles
     .replace(/\s*[-–:|]?\s*(standard|deluxe|ultimate|premium|gold|complete|definitive|digital|collector'?s|anniversary|game of the year)\s+edition\b.*$/i, "")
     .replace(/\s*[-–:|]?\s*(game of the year|goty)\b.*$/i, "").trim();
@@ -1111,7 +1124,9 @@ function editionKey_(t) {
   return norm_(cleanTitle_(String(t || "").replace(/[™®©]/g, "").replace(ed, "")
     .replace(/\b(xbox one|xbox series x\|s|xbox series x|windows|for pc|pc|ps4|ps5)\b/gi, "")));
 }
-function norm_(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
+// (NFKD first: "SOULCALIBUR Ⅵ" is written with the single Roman numeral character Ⅵ, which would otherwise be dropped and
+// leave "soulcalibur", the first game of the series)
+function norm_(s) { return String(s || "").replace(/[™®©℠]/g, "").normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g, ""); }
 // The buyable edition of each game in the full list, by editionKey_: Game Pass lists and upcoming rows sometimes
 // use a store product that isn't sold on its own (the Game Pass version, often part of the retail editions).
 // The pick: a console version over a PC-only one, then the lowest regular price (the standard edition).
@@ -1281,7 +1296,7 @@ function mcOpts_() {
 // The numbers in a title or Metacritic slug that tell games of a series apart: 4, II, IV ("Modern Warfare 4" isn't
 // "Modern Warfare 2"). Years (1980 on) are left out: Metacritic adds them to some slugs ("doom-2016").
 function mcNums_(s) {
-  return String(s || "").toLowerCase().split(/[^a-z0-9]+/)
+  return String(s || "").replace(/[™®©℠]/g, "").normalize("NFKD").toLowerCase().split(/[^a-z0-9]+/)
     .filter(w => (/^\d+$/.test(w) && !(+w >= 1980 && +w <= 2100)) || /^(ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii)$/.test(w))
     .map(w => ({ ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7", viii: "8", ix: "9", x: "10", xi: "11", xii: "12" })[w] || String(+w))
     .sort().join(",");

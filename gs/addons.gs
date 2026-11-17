@@ -301,3 +301,75 @@ function xPublisherIds_() {
   saveJsonToDrive_({ updatedAt: new Date().toISOString(), p: known }, "xbox_pubids.json", "XPUBIDS_FILE_ID");
   Logger.log("Publisher ids: looked up " + due.length + " games (" + asked + " requests), " + withId + " with an id; " + Object.keys(known).length + " known in all");
 }
+
+// ---------- What each Xbox edition (bundle) includes ----------
+// A bundle's product data lists the products it's made of (its SKU's BundledSkus: the game, add-ons, season pass...).
+// Looked up for every game in the full list whose name says it's an edition or bundle, and every edition the add-on
+// relations name as including an add-on; again after XBUN_RECHECK_DAYS, XBUN_MAX per run. Saved in xbox_bundles.json:
+// {b: {bundle id: [[item ids], checked (ms)]}, n: {item id: [title, product type, square art]}} (names of the items, looked
+// up too when they're not known). The game pages show it (g.inc: "What's included"; g.inb: "Included in").
+const XBUN_MAX = 3000, XBUN_RECHECK_DAYS = 20;
+const XBUN_NAME = /\b(edition|bundle|collection|vault|trilogy|anthology|double pack|triple pack|complete|ultimate|deluxe|premium|gold|definitive|goty|game of the year)\b/i;
+function xDcFetch_(ids) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += 160) {
+    const chunks = [];
+    for (let k = i; k < Math.min(i + 160, ids.length); k += 20) chunks.push(ids.slice(k, k + 20));
+    let res = [];
+    try {
+      res = UrlFetchApp.fetchAll(chunks.map(c => ({ url: "https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=" + c.join(",") +
+        "&market=US&languages=en-US&MS-CV=DGU1mcuYo0WMMp%2BF.1", muteHttpExceptions: true })));
+    } catch (e) { if (quotaHit_(e)) break; Logger.log("Bundle lookup failed: " + e.message); continue; }
+    res.forEach((r, n) => {
+      let d = null;
+      try { if (r && r.getResponseCode() === 200) d = JSON.parse(r.getContentText()); } catch (e) {}
+      out.push([chunks[n], d ? d.Products || [] : null]);
+    });
+  }
+  return out;
+}
+function xBundleContents_() {
+  const t0 = Date.now(), file = psReadJson_("XBUNDLES_FILE_ID", { b: {}, n: {} }), b = file.b || {}, names = file.n || {};
+  const cat = psReadJson_("CATALOG_FILE_ID", { games: [] }).games || [];
+  const rel = psReadJson_("XADDON_REL_FILE_ID", { r: {} }).r || {};
+  const ids = cat.filter(r => r[0] && XBUN_NAME.test(String(r[1] || ""))).map(r => String(r[0]).toUpperCase());
+  Object.keys(rel).forEach(k => (rel[k][1] || []).forEach(x => ids.push(String(x).toUpperCase())));
+  const uniq = Array.from(new Set(ids));
+  const due = uniq.filter(id => !b[id] || Date.now() - b[id][1] > XBUN_RECHECK_DAYS * 864e5).sort((x, y) => (b[x] ? 1 : 0) - (b[y] ? 1 : 0)).slice(0, XBUN_MAX);
+  const nameOf = p => {
+    const lp = (p.LocalizedProperties && p.LocalizedProperties[0]) || {}, imgs = lp.Images || [];
+    const sq = imgs.find(x => x.ImagePurpose === "BoxArt") || imgs.find(x => x.ImagePurpose === "Poster");
+    return [lp.ProductTitle || "", p.ProductType || "", sq && sq.Uri ? shortImg_(sq.Uri.startsWith("//") ? "https:" + sq.Uri : sq.Uri) : ""];
+  };
+  let withItems = 0;
+  xDcFetch_(due).forEach(([chunk, products]) => {
+    if (!products) return;
+    const seen = {};
+    products.forEach(p => {
+      const id = String(p.ProductId || "").toUpperCase();
+      seen[id] = 1;
+      names[id] = nameOf(p);
+      const items = [];
+      (p.DisplaySkuAvailabilities || []).slice(0, 1).forEach(sa => {
+        const sp = (sa.Sku && sa.Sku.Properties) || {};
+        (sp.BundledSkus || []).forEach(x => { const bid = String(x.BigId || x.bigId || "").toUpperCase(); if (bid && bid !== id && items.indexOf(bid) < 0) items.push(bid); });
+      });
+      if (!items.length) ((p.MarketProperties && p.MarketProperties[0] && p.MarketProperties[0].RelatedProducts) || [])
+        .filter(x => /^(bundlecomponent|component|contains|bundleditem)$/i.test(String(x.RelationshipType || "")))
+        .forEach(x => { const bid = String(x.RelatedProductId || "").toUpperCase(); if (bid && items.indexOf(bid) < 0) items.push(bid); });
+      b[id] = [items, Date.now()];
+      if (items.length) withItems++;
+    });
+    chunk.forEach(id => { if (!seen[id]) b[id] = [[], Date.now()]; });
+  });
+  // the items' names
+  const unknown = Array.from(new Set([].concat(...Object.keys(b).map(k => b[k][0])))).filter(id => !names[id]).slice(0, 4000);
+  xDcFetch_(unknown).forEach(([chunk, products]) => (products || []).forEach(p => { names[String(p.ProductId || "").toUpperCase()] = nameOf(p); }));
+  // names no bundle needs any more
+  const used = {};
+  Object.keys(b).forEach(k => { used[k] = 1; b[k][0].forEach(x => { used[x] = 1; }); });
+  Object.keys(names).forEach(k => { if (!used[k]) delete names[k]; });
+  saveJsonToDrive_({ updatedAt: new Date().toISOString(), b: b, n: names }, "xbox_bundles.json", "XBUNDLES_FILE_ID");
+  Logger.log("Bundles: looked up " + due.length + " of " + uniq.length + " editions, " + withItems + " with their contents; " +
+    unknown.length + " item names looked up (" + Math.round((Date.now() - t0) / 1000) + " s)");
+}
