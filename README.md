@@ -10,6 +10,7 @@ Scheduled jobs that collect game store data (prices, sales, add-ons) and publish
   the prices its browse list leaves out (`xbox_gaps_<code>.json`, merged into the region's price file, with `na`: games not
   sold there) and keeps each region's price history (`rhist/<xbox|ps>-<code>.json`) for the game pages
 - `gs/addons.gs`: Xbox add-ons, and what each edition includes (`xbox_bundles.json`); every add-on gets a game page
+- `jobs/social.js`: posts the big new deals (after each store run) and the week's best deals (Sundays) to Bluesky, Facebook, Instagram, Pinterest and X; setup in `SOCIAL.md`
 - `seed.js`: copies files the jobs build on from the site's data service
 - `.github/workflows/`: the schedules
 
