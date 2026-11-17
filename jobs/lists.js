@@ -12,7 +12,8 @@
 //                 PSPLUS_NEW_DAYS), and games the PlayStation Blog announced for PS Plus that aren't in it yet
 //   data/<xbox|ps>_best_<year>.json   {year, updatedAt, games}: the year's 50 best games by Metascore (released that
 //                 year, one per game). Updated through the year and in January (late reviews); then it's kept as it is.
-//   <xbox|ps>_home.json sections.pubsale: a row for each big publisher (PUB_ROWS) with more than PUB_MIN games on sale.
+//   <xbox|ps>_home.json sections.pubsale: a row for each big publisher (PUB_ROWS) with more than PUB_MIN games on sale;
+//                 sections.wanted: the most wanted games (the same as the lists' wanted), for the home page's row.
 //
 // node jobs/lists.js xbox|ps
 const fs = require("fs"), path = require("path");
@@ -200,6 +201,11 @@ async function ignWanted() {
     };
     try { walk(JSON.parse(m[1]), 0); } catch (e) {}
   }
+  // the page's own ranked tiles (<figcaption data-cy="tile-title">Grand Theft Auto VI</figcaption>, in rank order): IGN no
+  // longer puts the games in __NEXT_DATA__ (its list data is compressed), so these come first
+  const ent = t => t.replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&#x2F;/g, "/");
+  const tiles = (html.match(/data-cy="tile-title"[^>]*>([^<]{2,90})</g) || []).map(t => ent(t.replace(/^[^>]*>/, "").replace(/<$/, "")));
+  if (tiles.length >= 5) { names.length = 0; tiles.forEach(add); }
   if (names.length < 5) {   // no page data: the list's headings
     (html.match(/<h[23][^>]*>([^<]{2,90})<\/h[23]>/g) || []).forEach(h => add(h.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/^\d+\.\s*/, "")));
   }
@@ -274,6 +280,9 @@ async function psPlus() {
   const out = { updatedAt: new Date().toISOString(), plat, year, bestYears, recent, upcoming, free, meta, publishers, wanted: await wanted() };
   if (PS) out.psplus = await psPlus();
   write(plat + "_lists.json", out);
+  // the home page's "Most wanted" row: the same games (IGN's list, else the site's wishlists), in order
+  const h = read(homeFile, null);
+  if (h && h.sections) { h.sections.wanted = out.wanted.games.slice(0, 20); h.sections.wantedSrc = out.wanted.src; write(homeFile, h); }
   console.log("Lists (" + plat + "): recent " + recent.length + ", upcoming " + upcoming.length + ", free " + free.length + ", Metacritic " + meta.length +
     ", publishers " + publishers.length + ", best of " + years.join("/") + ", most wanted " + out.wanted.games.length + " (" + out.wanted.src + ")" +
     (PS ? ", PS Plus added " + out.psplus.added.length + ", coming " + out.psplus.coming.length : "") + ", publisher rows " + pubsale.map(p => p.name + " " + p.n).join(", "));
