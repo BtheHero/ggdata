@@ -245,7 +245,7 @@ function exportUS_() {
         // No purchase offer = bundle component or Game Pass-only listing, so skip it
         if (purchase) catalog.push([
           product.productId || "", product.title || "", product.publisherName || "",
-          price, msrp, purchase?.currency || "", shortImg_(pickImage_(product)), rank
+          price, msrp, purchase?.currency || "", shortImg_(coverOf_(product)), rank
         ]);
 
         // Keep only games that are on sale
@@ -265,7 +265,7 @@ function exportUS_() {
           price: purchase?.listPrice ?? null,
           discountPercent: purchase?.discountPercentage ?? null,
           currency: purchase?.currency ?? null,
-          image: pickImage_(product),
+          image: coverOf_(product),
           sq: shortImg_(pickSquare_(product))
         });
         SALE_ART[String(product.productId).toUpperCase()] = { sq: pickSquare_(product), wide: pickWide_(product) };
@@ -394,6 +394,20 @@ function dcPoster_(imgs) {
     imgs.find(x => /^(BoxArt|Poster|BrandedKeyArt|FeaturePromotionalSquareArt)$/.test(x.ImagePurpose) && portrait_(x.Width, x.Height)) ||
     imgs.find(x => x.ImagePurpose === "Poster") || imgs.find(x => x.ImagePurpose === "BoxArt");
 }
+// Each game's portrait cover from the catalog, with sizes checked (jobs/media.js writes data/xbox_posters.json
+// {id: short picture name}; none when it hasn't run yet or outside the jobs' runtime)
+let POSTERS = null;
+function posters_() {
+  if (POSTERS) return POSTERS;
+  try { POSTERS = JSON.parse(DriveApp.getFileById("xbox_posters.json").getBlob().getDataAsString()) || {}; } catch (e) { POSTERS = {}; }
+  return POSTERS;
+}
+// A browse list game's cover: its checked portrait cover when known (the browse list often gives no sizes, and then
+// pickImage_ can only guess, often the square box art), else pickImage_'s pick
+function coverOf_(product) {
+  const p = product && product.productId && posters_()[String(product.productId).toUpperCase()];
+  return p ? (p.startsWith("http") ? p : IMG_PREFIX + p) : pickImage_(product);
+}
 function pickImage_(product) {
   const imgs = product.images || {};
   const keys = ["poster", "boxArt", "featurePromotionalSquareArt", "titledHeroImage", "superHeroArt"];
@@ -509,7 +523,8 @@ function enrichGames_(games, startTime) {
           g.genres = (props.Categories || [props.Category]).filter((x, i, a) => x && a.indexOf(x) === i);   // no repeats
           const imgs = (p.LocalizedProperties && p.LocalizedProperties[0] && p.LocalizedProperties[0].Images) || [];
           const art = dcPoster_(imgs);
-          if (art && art.Uri) g.image = art.Uri.startsWith("//") ? "https:" + art.Uri : art.Uri;
+          // (a cover that isn't portrait doesn't replace a checked portrait one)
+          if (art && art.Uri && (portrait_(art.Width, art.Height) || !posters_()[String(p.ProductId).toUpperCase()])) g.image = art.Uri.startsWith("//") ? "https:" + art.Uri : art.Uri;
           g.released = relDate_(p);
           let ends = Infinity;
           (p.DisplaySkuAvailabilities || []).forEach(sku => (sku.Availabilities || []).forEach(a => {
@@ -652,7 +667,7 @@ function exportRegion_(code, chainStart) {
         productId: p.productId,
         title: p.title || "",
         publisher: p.publisherName || "",
-        image: pickImage_(p),
+        image: coverOf_(p),
         pc: pcOnly_(p)
       });
     }
