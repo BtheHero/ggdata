@@ -203,7 +203,7 @@ const psVersionKey_ = g => String(g.title || "").toLowerCase().replace(/[™®©
   .replace(/\s+/g, " ").trim() + "|" + String(g.kind || "").toLowerCase();
 function psMergeVersions_(games) {
   PS_DUPS = {};
-  const by = {};
+  const by = Object.create(null);
   games.forEach(g => { (by[psVersionKey_(g)] = by[psVersionKey_(g)] || []).push(g); });
   Object.keys(by).forEach(k => {
     const list = by[k];
@@ -780,7 +780,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
 
   // Well-known games on sale, by number of store ratings, one per game (the home page picks 7 at random
   // each day from spotPool and hotPool; the rules are in exportXboxCatalog.gs: SPOT_TOP, hotPool_ and SEE_ALL_RATINGS)
-  const rated = [], seenTitle = {};
+  const rated = [], seenTitle = Object.create(null);
   games.filter(g => star(g.productId) && star(g.productId)[1] > 0 && g.image)
     .sort((a, b) => star(b.productId)[1] - star(a.productId)[1]).forEach(g => {
       // editions with different names ("… Messi Edition" / "… Lamine Yamal Edition") share the game's ratings:
@@ -837,7 +837,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
   };
 
   // Posters of the best-selling games on sale, one per game, for the deals bar
-  const seenName = {}, bar = [];
+  const seenName = Object.create(null), bar = [];
   games.forEach(g => {
     const name = norm_(cleanTitle_(g.title).replace(/\b(ps4|ps5)\b/gi, ""));
     if (!g.image || seenName[name] || bar.length >= 14) return;

@@ -143,7 +143,7 @@ function exportXboxAddOns() {
     kept++;
   });
   // the Xbox and Windows listings of the same add-on ("… Cosmetic Pack - Windows 10") once
-  const same = {};
+  const same = Object.create(null);
   const list = Object.keys(found).map(id => found[id]).sort((a, b) => a.rank - b.rank || b.discountPercent - a.discountPercent)
     .sort((a, b) => /windows/i.test(a.title) - /windows/i.test(b.title))
     .filter(g => {

@@ -74,7 +74,7 @@ const gid = id => PS && games[id].cn ? "c" + games[id].cn : editionKey(games[id]
 // A publisher: Xbox's publisher id (pb, from the store's product data); PlayStation gives none, so its name (pubKey)
 const pk = g => !PS && g.pb ? "x" + g.pb : pubKey(g.p);
 // the best-known edition of each game: the one with the most store ratings, then the standard (cheapest) one
-const byGame = {};
+const byGame = Object.create(null);
 ids.forEach(id => {
   const g = games[id];
   if (!isGame(g)) return;
@@ -83,14 +83,14 @@ ids.forEach(id => {
   (byGame[k] = byGame[k] || []).push(id);
 });
 const rc = id => (games[id].ra && games[id].ra[1]) || 0;
-const main = {};   // game key -> the edition that stands for it
+const main = Object.create(null);   // game key -> the edition that stands for it
 Object.keys(byGame).forEach(k => {
   main[k] = byGame[k].slice().sort((a, b) => rc(b) - rc(a) || mcOf(games[b]) - mcOf(games[a]) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
 });
-const one = list => { const seen = {}; return list.filter(id => { const k = gid(id); if (seen[k]) return false; seen[k] = 1; return true; }); };
+const one = list => { const seen = Object.create(null); return list.filter(id => { const k = gid(id); if (seen[k]) return false; seen[k] = 1; return true; }); };
 const mains = Object.keys(main).map(k => main[k]);
 // a game's name (without its edition) -> its main edition: matching names from outside (IGN, the PlayStation Blog)
-const byTitle = {};
+const byTitle = Object.create(null);
 mains.forEach(id => { const k = editionKey(games[id].t); if (k && (!byTitle[k] || rc(id) > rc(byTitle[k]))) byTitle[k] = id; });
 
 // ---------- recent and upcoming releases ----------
@@ -113,7 +113,7 @@ const year = new Date(NOW).getUTCFullYear();
 function bestOf(y) {
   const from = Date.UTC(y, 0, 1), to = Date.UTC(y + 1, 0, 1);
   // a game counts in the year of its first release (its earliest edition)
-  const first = {};
+  const first = Object.create(null);
   ids.forEach(id => { const g = games[id]; if (!isGame(g) || !relOf(g)) return; const k = gid(id); first[k] = Math.min(first[k] || Infinity, relOf(g)); });
   return mains.filter(id => { const t = first[gid(id)]; return mcOf(games[id]) > 0 && t >= from && t < to && t <= NOW; })
     .sort((a, b) => mcOf(games[b]) - mcOf(games[a]) || rc(b) - rc(a)).slice(0, BEST_N).map(id => clean(entry(id, games[id])));
@@ -128,7 +128,7 @@ years.forEach(y => {
 const bestYears = fs.readdirSync(DATA).map(f => (f.match(new RegExp("^" + plat + "_best_(\\d{4})\\.json$")) || [])[1]).filter(Boolean).map(Number).sort((a, b) => b - a);
 
 // ---------- publishers: unique games each (editions and add-ons once) ----------
-const pubs = {};
+const pubs = Object.create(null);
 mains.forEach(id => {
   const g = games[id], k = pk(g);
   if (!k) return;
@@ -147,7 +147,7 @@ const publishers = Object.keys(pubs).map(k => pubs[k]).filter(p => p.n >= 2).sor
   });
 
 // every publisher's games (all editions and add-ons), for the publisher pages: {pubs: {key: {name, ids}}, byName: {pubKey(name): key}}
-const pubGames = {}, byName = {};
+const pubGames = Object.create(null), byName = Object.create(null);
 ids.forEach(id => {
   const g = games[id];
   if (!g || g.a || !g.t || !g.p) return;
