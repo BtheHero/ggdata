@@ -5,6 +5,7 @@ Scheduled jobs that collect game store data (prices, sales, add-ons) and publish
 - `gs/`: the jobs, written for Google Apps Script and run here unchanged
 - `runtime/appsscript.js`: stand-ins for the Apps Script services (web requests, files, settings)
 - `jobs/media.js`: screenshots, trailers, key art and genres of every game (links only)
+- `jobs/lists.js`: the site's list pages (best games of the year, kept for every year; upcoming and recent releases; publishers; free games; top Metacritic; most wanted; PS Plus new and announced) and the home page's publisher rows
 - `run.js`: runs one job (`node run.js xbox`, `node run.js media`)
 - `seed.js`: copies files the jobs build on from the site's data service
 - `.github/workflows/`: the schedules

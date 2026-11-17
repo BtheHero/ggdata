@@ -821,10 +821,12 @@ function buildHome_(catalog, dated, gamePass, sales) {
   // a listed game that isn't sold under its own id: the buyable edition of the same game (retailEditions_), its id
   // and price; the art, dates and Game Pass status stay the listed game's
   const retail = retailEditions_(catalog);
+  const SC = psReadJson_("SCORES_FILE_ID", {});   // Metascores, for the home page's "best reviewed" picks
   const entry = id0 => {
     const i = info[id0] || {}, alt = !row[id0] && (i.title || "") ? retail[editionKey_(i.title)] : null;
     const id = alt && alt !== id0 ? alt : id0, r = row[id] || [];
     return {
+      mc: mcNum_(SC[id] || SC[id0]) || undefined,
       id: id, lid: id !== id0 ? id0 : undefined,   // lid: the id the list had (its old links go to this page)
       title: i.title || r[1] || "",
       publisher: i.publisher || r[2] || "",

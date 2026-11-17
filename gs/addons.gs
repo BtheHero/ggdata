@@ -217,3 +217,87 @@ function exportXboxAllAddOns() {
   Logger.log("Xbox add-ons (all): " + Object.keys(all).length + " (" + added + " new, " + dropped + " dropped). Looked up " + started + " of " +
              queries.length + " games, " + sent + " requests, " + Math.round((Date.now() - t0) / 1000) + " s.");
 }
+
+// ---------- Which game (and which editions) each Xbox add-on belongs to ----------
+// The store's own product data says it: an add-on's related products include its game ("Parent") and the editions
+// (bundles) that already include it ("Bundle"). Matching by name can't tell editions apart ("GTA VI Ultimate Edition
+// Upgrade" starts with "GTA VI Ultimate Edition", but it's for the Standard Edition), so the game pages use this first.
+// Saved in xbox_addon_rel.json: {r: {add-on id: [game id or "", [edition ids that include it], checked (ms)]}}.
+// New add-ons are looked up on every run; known ones again after XREL_RECHECK_DAYS, XREL_MAX per run.
+const XREL_MAX = 4000, XREL_RECHECK_DAYS = 30;
+const XREL_PARENT = /^(parent|parentproduct|prerequisite|requiredproduct|basegame)$/i;
+function xAddOnRelations_() {
+  const t0 = Date.now(), file = psReadJson_("XADDON_REL_FILE_ID", { r: {} }), rel = file.r || {};
+  const ids = Object.keys(psReadJson_("XADDONS_ALL_FILE_ID", { a: {} }).a || {})
+    .concat((psReadJson_("XADDONS_FILE_ID", { games: [] }).games || []).map(g => g.productId)).filter(Boolean)
+    .map(id => String(id).toUpperCase()).filter((id, i, a) => a.indexOf(id) === i);
+  const due = ids.filter(id => !rel[id] || Date.now() - rel[id][2] > XREL_RECHECK_DAYS * 864e5)
+    .sort((a, b) => (rel[a] ? 1 : 0) - (rel[b] ? 1 : 0)).slice(0, XREL_MAX);
+  let found = 0, kinds = {};
+  for (let i = 0; i < due.length && Date.now() - t0 < 8 * 60 * 1000; i += 160) {
+    const chunks = [];
+    for (let k = i; k < Math.min(i + 160, due.length); k += 20) chunks.push(due.slice(k, k + 20));
+    let res = [];
+    try {
+      res = UrlFetchApp.fetchAll(chunks.map(c => ({ url: "https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=" + c.join(",") +
+        "&market=US&languages=en-US&MS-CV=DGU1mcuYo0WMMp%2BF.1", muteHttpExceptions: true })));
+    } catch (e) { if (quotaHit_(e)) break; Logger.log("Add-on relations lookup failed: " + e.message); continue; }
+    res.forEach((r, n) => {
+      let d = null;
+      try { if (r && r.getResponseCode() === 200) d = JSON.parse(r.getContentText()); } catch (e) {}
+      if (!d) return;
+      const seen = {};
+      (d.Products || []).forEach(p => {
+        const id = String(p.ProductId || "").toUpperCase();
+        const list = (p.MarketProperties && p.MarketProperties[0] && p.MarketProperties[0].RelatedProducts) || [];
+        list.forEach(x => { kinds[x.RelationshipType] = (kinds[x.RelationshipType] || 0) + 1; });
+        const parent = list.find(x => XREL_PARENT.test(String(x.RelationshipType || "")));
+        const bundles = list.filter(x => /^bundle$/i.test(String(x.RelationshipType || ""))).map(x => String(x.RelatedProductId).toUpperCase());
+        rel[id] = [parent ? String(parent.RelatedProductId).toUpperCase() : "", bundles, Date.now()];
+        seen[id] = 1;
+        if (parent) found++;
+      });
+      chunks[n].forEach(id => { if (!seen[id]) rel[id] = ["", [], Date.now()]; });   // not in the catalog (any more)
+    });
+  }
+  Object.keys(rel).forEach(id => { if (ids.indexOf(id) < 0 && Date.now() - rel[id][2] > 90 * 864e5) delete rel[id]; });
+  saveJsonToDrive_({ updatedAt: new Date().toISOString(), r: rel }, "xbox_addon_rel.json", "XADDON_REL_FILE_ID");
+  Logger.log("Add-on relations: looked up " + due.length + " of " + ids.length + " add-ons, " + found + " with their game. Relationship types seen: " +
+    Object.keys(kinds).map(k => k + " " + kinds[k]).join(", "));
+}
+
+// ---------- Xbox publisher ids ----------
+// The store's game list only gives a publisher's name, and spells some several ways; its product data also gives the
+// publisher's id (Properties.PublisherId). Every game's is kept in xbox_pubids.json: {p: {product id: [publisher id, publisher
+// name, checked (ms)]}}; new games are looked up on every run, known ones again after XPUB_RECHECK_DAYS, XPUB_MAX per run.
+// The game pages carry it (pb) and the lists job groups publishers by it.
+const XPUB_MAX = 6000, XPUB_RECHECK_DAYS = 45;
+function xPublisherIds_() {
+  const t0 = Date.now(), file = psReadJson_("XPUBIDS_FILE_ID", { p: {} }), known = file.p || {};
+  const ids = (psReadJson_("CATALOG_FILE_ID", { games: [] }).games || []).map(r => String(r[0] || "").toUpperCase()).filter(Boolean);
+  const due = ids.filter(id => !known[id] || Date.now() - known[id][2] > XPUB_RECHECK_DAYS * 864e5)
+    .sort((a, b) => (known[a] ? 1 : 0) - (known[b] ? 1 : 0)).slice(0, XPUB_MAX);
+  let withId = 0, asked = 0;
+  for (let i = 0; i < due.length && Date.now() - t0 < 10 * 60 * 1000; i += 160) {
+    const chunks = [];
+    for (let k = i; k < Math.min(i + 160, due.length); k += 20) chunks.push(due.slice(k, k + 20));
+    let res = [];
+    try {
+      res = UrlFetchApp.fetchAll(chunks.map(c => ({ url: "https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=" + c.join(",") +
+        "&market=US&languages=en-US&MS-CV=DGU1mcuYo0WMMp%2BF.1", muteHttpExceptions: true })));
+    } catch (e) { if (quotaHit_(e)) break; Logger.log("Publisher id lookup failed: " + e.message); continue; }
+    asked += chunks.length;
+    res.forEach(r => {
+      let d = null;
+      try { if (r && r.getResponseCode() === 200) d = JSON.parse(r.getContentText()); } catch (e) {}
+      ((d && d.Products) || []).forEach(p => {
+        const id = String(p.ProductId || "").toUpperCase(), pr = p.Properties || {}, lp = (p.LocalizedProperties && p.LocalizedProperties[0]) || {};
+        const pub = String(pr.PublisherId || pr.PublisherID || "").trim();
+        known[id] = [pub, lp.PublisherName || "", Date.now()];
+        if (pub) withId++;
+      });
+    });
+  }
+  saveJsonToDrive_({ updatedAt: new Date().toISOString(), p: known }, "xbox_pubids.json", "XPUBIDS_FILE_ID");
+  Logger.log("Publisher ids: looked up " + due.length + " games (" + asked + " requests), " + withId + " with an id; " + Object.keys(known).length + " known in all");
+}

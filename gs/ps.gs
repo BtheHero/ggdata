@@ -750,7 +750,9 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
   // Store ratings, looked up by psFillPublishers (it has the time; this run doesn't)
   const star = id => (cache.stars && cache.stars[id]) || null;
 
+  const SC = psReadJson_("PS_SCORES_FILE_ID", {});   // Metascores, for the home page's "best reviewed" picks
   const fromGame = g => ({
+    mc: mcNum_(SC[g.productId]) || undefined,
     id: g.productId, key: g.key, title: g.title, publisher: g.publisher || "", image: g.image, sq: (PS_ART[g.productId] || {}).sq || null, wide: (PS_ART[g.productId] || {}).wide || null,
     price: g.price, msrp: g.msrp, currency: g.currency, date: g.saleEnds || null,
     ra: star(g.productId) ? star(g.productId)[0] : null, rc: star(g.productId) ? star(g.productId)[1] : 0,
