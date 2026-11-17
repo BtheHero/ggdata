@@ -38,7 +38,7 @@ const art = u => !u ? "" : String(u)[0] === "~" ? PSI + String(u).slice(1) : u;
 const mcOf = g => Array.isArray(g.mc) ? Number(g.mc[0]) || 0 : Number(g.mc) || 0;
 const relOf = g => { const t = Date.parse(g.r); return t && Number(String(g.r).slice(0, 4)) < 9000 ? t : 0; };
 const ADDON = /^(add-?on|add-on pack|map|level|costume|vehicle|character|item|episode|season pass|virtual currency|weapons?|track|avatar|theme|soundtrack|expansion|durable|consumable)$/i;
-const NOT_GAME = /\b(add-?ons?|upgrade|season pass|dlc|expansion pass|soundtrack|currency|points|coins|credits|v-bucks|costume|skins?|bonus|demo|trial|beta|playtest|test server|bundle|pack)\b/i;
+const NOT_GAME = /\b(add-?ons?|upgrade|season pass|dlc|expansion pass|soundtrack|currency|points|coins|credits|v-bucks|costume|skins?|bonus|demo|trial|beta|playtest|test server|bundle|packs?|launcher|supporter)\b/i;
 const isGame = g => g && g.t && !g.a && !g.kd && !ADDON.test(String(g.kd || "")) && !NOT_GAME.test(g.t);
 const SUBS_X = ["eaplay", "ubisoft", "gtaplus"];
 // in the site's card shape (site.js card())
@@ -53,13 +53,20 @@ const entry = (id, g) => ({
 });
 const clean = e => { Object.keys(e).forEach(k => { if (e[k] === undefined || e[k] === null || (Array.isArray(e[k]) && !e[k].length)) delete e[k]; }); return e; };
 
+const ED_WORDS = /\s*((standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|collector'?s|anniversary|special|enhanced|legendary|launch|cross-gen|game of the year|goty|platinum|limited|super|\d+(st|nd|rd|th))\s+)+(edition|bundle)\b.*$/i;
 // One key per game (every edition and platform version of it), as the game pages' "Other editions" do
 const editionKey = t => {
   let s = String(t || "").replace(/[™®©]/g, "").replace(/\s*[([](pc|windows|xbox[^)\]]*|ps[45][^)\]]*)[)\]]\s*$/i, "");
   const parts = s.split(/\s*(?:[:–—|]|\s-\s)\s*/);   // only the part after the last separator can name the edition
-  if (parts.length > 1 && /\b(edition|bundle|version)\b/i.test(parts[parts.length - 1])) s = parts.slice(0, -1).join(" ");
-  s = s.replace(/\s*((standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|collector'?s|anniversary|special|enhanced|legendary|launch|cross-gen|game of the year|goty|platinum|limited|super|\d+(st|nd|rd|th))\s+)+(edition|bundle)\b.*$/i, "");
-  return s.toLowerCase().replace(/\b(xbox one|xbox series x\|s|xbox series x|for xbox series x\|s|windows( 10)?|for pc|pc|ps4|ps5)\b/g, " ")
+  const last = parts[parts.length - 1];
+  if (parts.length > 1 && /\b(edition|bundle|version)\b/i.test(last)) {
+    // "Galactic Racer Deluxe Edition", "Belmont's Curse Midnight Edition": the game's own words stay; "Deluxe Edition" goes
+    const known = last.replace(ED_WORDS, "").trim(), w = last.split(/\s+/);
+    parts[parts.length - 1] = known && known !== last ? known : w.length > 2 && /^(edition|bundle|version)$/i.test(w[w.length - 1]) ? w.slice(0, -2).join(" ") : "";
+    s = parts.filter(Boolean).join(" ");
+  }
+  s = s.replace(ED_WORDS, "");
+  return s.normalize("NFKD").toLowerCase().replace(/\b(xbox one|xbox series x\|s|xbox series x|for xbox series x\|s|windows( 10)?|for pc|pc|ps4|ps5)\b/g, " ")
     .replace(/\s*(game of the year|goty)\b.*$/, "").replace(/\s*[\(\[].*?[\)\]]/g, "").replace(/[^a-z0-9]+/g, "");
 };
 // The same publisher however the store spells it (site.js pubKey: the same rule)
@@ -110,14 +117,38 @@ const meta = mains.filter(id => mcOf(games[id]) > 0 && relOf(games[id]) <= NOW).
   .slice(0, META_N).map(id => clean(entry(id, games[id])));
 
 // ---------- best of the year (kept for every year) ----------
+// Both stores' lists rank the same way: a game counts in the year it first came out on either store (a 2026 port of a
+// 2017 game isn't a 2026 game), with the best Metascore either store's page has for it. Each run writes what this store
+// knows, <plat>_bestinfo.json {g: {game name key: [first release (days since 1970), best Metascore]}}, and reads the
+// other store's.
 const year = new Date(NOW).getUTCFullYear();
+const bestInfo = Object.create(null);
+ids.forEach(id => {
+  const g = games[id];
+  if (!isGame(g)) return;
+  const k = editionKey(g.t);
+  if (!k) return;
+  const e = bestInfo[k] || (bestInfo[k] = [0, 0]), d = relOf(g) ? Math.floor(relOf(g) / DAY) : 0, m = mcOf(g);
+  if (d && (!e[0] || d < e[0])) e[0] = d;
+  if (m > e[1]) e[1] = m;
+});
+write(plat + "_bestinfo.json", { updatedAt: new Date().toISOString(), g: bestInfo });
+const otherInfo = (read((PS ? "xbox" : "ps") + "_bestinfo.json", { g: {} }).g) || {};
 function bestOf(y) {
   const from = Date.UTC(y, 0, 1), to = Date.UTC(y + 1, 0, 1);
-  // a game counts in the year of its first release (its earliest edition)
-  const first = Object.create(null);
-  ids.forEach(id => { const g = games[id]; if (!isGame(g) || !relOf(g)) return; const k = gid(id); first[k] = Math.min(first[k] || Infinity, relOf(g)); });
-  return mains.filter(id => { const t = first[gid(id)]; return mcOf(games[id]) > 0 && t >= from && t < to && t <= NOW; })
-    .sort((a, b) => mcOf(games[b]) - mcOf(games[a]) || rc(b) - rc(a)).slice(0, BEST_N).map(id => clean(entry(id, games[id])));
+  // a game's first release and best Metascore: its editions here, and the same game on the other store
+  const first = Object.create(null), score = Object.create(null);
+  ids.forEach(id => {
+    const g = games[id];
+    if (!isGame(g)) return;
+    const k = gid(id), o = otherInfo[editionKey(g.t)];
+    const t = [relOf(g), o && o[0] ? o[0] * DAY : 0].filter(Boolean);
+    if (t.length) first[k] = Math.min(first[k] || Infinity, ...t);
+    score[k] = Math.max(score[k] || 0, mcOf(g), (o && o[1]) || 0);
+  });
+  return mains.filter(id => { const t = first[gid(id)]; return score[gid(id)] > 0 && t >= from && t < to && t <= NOW; })
+    .sort((a, b) => score[gid(b)] - score[gid(a)] || rc(b) - rc(a)).slice(0, BEST_N)
+    .map(id => clean(Object.assign(entry(id, games[id]), { mc: score[gid(id)] })));
 }
 const years = [year].concat(new Date(NOW).getUTCMonth() === 0 ? [year - 1] : []);   // last year's list until January ends
 years.forEach(y => {

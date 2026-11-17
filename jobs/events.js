@@ -69,7 +69,9 @@ for (const e of EVENTS) {
         ends: g.saleEnds || null, pc: !!g.pc, genres: (g.genres || []).slice(0, 3), subs: g.subs || [], tiers: g.tiers || [], release: null, date: null });
     });
   const top = Math.max(...inSale.map(g => Math.round((1 - g.price / g.msrp) * 100)));   // "up to X% off"
-  event = { key: e.key, name: e.name, from, to, ends: endsAt, count: inSale.length, top, games };
+  // the number of deals the banner gives: games only (editions and bundles of games), not add-ons
+  const count = inSale.filter(g => !ADDON.test(String(g.kind || "").trim()) && !ADDON_TITLE.test(g.title || "")).length;
+  event = { key: e.key, name: e.name, from, to, ends: endsAt, count, top, games };
   break;
 }
 

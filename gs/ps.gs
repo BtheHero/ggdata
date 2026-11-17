@@ -482,7 +482,8 @@ function exportPlayStation_(opts) {
   games.forEach(g => { listPrice[g.productId] = g.price; });
   Object.keys(offers).forEach(id => {
     // `seen` is the list price at lookup time; a game with no usable offer is remembered too, so it isn't asked again daily
-    cache.offers[id] = Object.assign(psOffer_(offers[id]) || { end: 0, price: null }, { seen: listPrice[id], v: PS_OFFER_VERSION });
+    cache.offers[id] = Object.assign(psOffer_(offers[id]) || { end: 0, price: null }, { seen: listPrice[id], v: PS_OFFER_VERSION },
+      offers[id].concept && offers[id].concept.id ? { con: String(offers[id].concept.id) } : {});   // the game (regions: psRegionGaps_)
   });
 
   const needDetails = games.map(g => g.productId).filter(id => !cache.details[id])
@@ -517,6 +518,23 @@ function exportPlayStation_(opts) {
     g.tiers = psFixTrial_(g.tiers, d && d.con, trials);
     g.subs = psSubs_(g.tiers);
   });
+
+  // Deals the store gives only square art (half of them): the game's own poster when its page (concept) has one, from the
+  // full game list, so the site's poster cards show a poster, not a square cover in a tall frame
+  try {
+    const posters = {};
+    (psReadJson_("PS_CATALOG_FILE_ID", { games: [] }).games || []).forEach(r => {
+      const sq = String(r[14] || "").replace(/^~/, PS_IMG_ROOT);
+      if (r[0] && r[6] && r[6] !== sq && /\/vulcan\/ap\/rnd\//.test(r[6])) posters[String(r[0])] = r[6];
+    });
+    let borrowed = 0;
+    games.forEach(g => {
+      if ((g.image && g.image !== g.sq) || !psIsGame_(g)) return;
+      const d = cache.details[g.productId], o = cache.offers[g.productId], con = (d && d.con) || (o && o.con);
+      if (con && posters[String(con)]) { g.image = posters[String(con)]; borrowed++; }
+    });
+    if (borrowed) Logger.log("PlayStation deals given their game's poster: " + borrowed);
+  } catch (e) { Logger.log("PlayStation posters failed: " + e.message); }
 
   // 4. Price history: all-time lows and newest discounts
   try { psUpdateHistory_(games, seen); } catch (e) { Logger.log("PlayStation history failed: " + e.message); }
@@ -846,7 +864,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
   });
 
   const file = saveJsonToDrive_(
-    { updatedAt: new Date().toISOString(), platform: "ps", dealsCount: games.length, bar: bar, gp: null, sections: sections },
+    { updatedAt: new Date().toISOString(), platform: "ps", dealsCount: games.filter(psIsGame_).length, bar: bar, gp: null, sections: sections },
     "ps_home.json", "PS_HOME_FILE_ID");
   console.log("PlayStation home saved: " + Object.keys(sections).filter(k => Array.isArray(sections[k])).map(k => k + "=" + sections[k].length).join(", ") + " " + file.getUrl());
 }
@@ -930,17 +948,31 @@ function exportPsRegion_(code, startTime) {
     sale.push(p);
   });
   // every game (concept) of the region's store, with its price: game pages, the full game list and the comparisons.
-  // Concept ids are the same in every region.
-  const picks = [];   // games priced by an edition in the US (PS_EPICK): their editions here, looked up below
-  [["sales30", 15000]].forEach(([sort, n]) => {
-    psGrid_(PS_ALL_GAMES, { name: sort, isAscending: false }, n, locale).items.forEach(c => {
-      if (!c || !c.id || !c.price || prices[String(c.id)]) return;
-      const price = psPrice_(c.price.discountedPrice), base = psPrice_(c.price.basePrice);
-      if (price === null) return;
-      prices[String(c.id)] = [price, base === null ? price : base, 1e6, 0, String(c.id)];
-      if (PS_EPICK[String(c.id)] && psConceptIds_(c).length > 1) picks.push(c);
-    });
+  // Concept ids are the same in every region. The store lists at most 10,000 games in one order, and the region's
+  // best sellers aren't the US ones (about 1 game in 8 of the US list was missing, and showed a converted US price).
+  // So each run also reads the list in one more order (newest first, or oldest first: by turns, PS_EXTRA_SORTS), and the
+  // games found that way are kept PS_EXTRA_DAYS (ext: {concept id: day found}) until their order comes round again.
+  const picks = [], concepts = {};   // picks: games priced by an edition in the US (PS_EPICK): their editions here, looked up below
+  const old = psReadJson_("PS_PRICES_" + code + "_FILE_ID", null), today = psDay_(Date.now()), ext = {};
+  const addConcept = (c, extra) => {
+    if (!c || !c.id || !c.price) return;
+    concepts[String(c.id)] = c;
+    if (prices[String(c.id)]) return;
+    const price = psPrice_(c.price.discountedPrice), base = psPrice_(c.price.basePrice);
+    if (price === null) return;
+    prices[String(c.id)] = [price, base === null ? price : base, 1e6, 0, String(c.id)];
+    if (extra) ext[String(c.id)] = today;
+    if (PS_EPICK[String(c.id)] && psConceptIds_(c).length > 1) picks.push(c);
+  };
+  psGrid_(PS_ALL_GAMES, { name: "sales30", isAscending: false }, 10000, locale).items.forEach(c => addConcept(c, false));
+  const turn = (Math.floor(Date.now() / 864e5) + Object.keys(PS_REGIONS).indexOf(code)) % PS_EXTRA_SORTS.length, sort = PS_EXTRA_SORTS[turn];
+  if (sort) psGrid_(PS_ALL_GAMES, sort, 10000, locale).items.forEach(c => addConcept(c, true));
+  let kept = 0;
+  if (old && old.prices && old.ext && old.currency) Object.keys(old.ext).forEach(id => {
+    if (prices[id] || !old.prices[id] || old.ext[id] < psDay_(Date.now() - PS_EXTRA_DAYS * 864e5)) return;
+    prices[id] = old.prices[id]; ext[id] = old.ext[id]; kept++;
   });
+  Logger.log("PlayStation " + code + ": " + Object.keys(concepts).length + " games listed (" + (sort ? sort.name + (sort.isAscending ? " ascending" : "") : "best sellers only") + "), " + kept + " kept from earlier runs");
   if (picks.length) {
     // each edition's price in this store, then the same pick as the US (psConceptPrice_: the lowest regular price)
     const ids = Array.from(new Set([].concat(...picks.map(psConceptIds_)))).slice(0, 900);
@@ -955,6 +987,9 @@ function exportPsRegion_(code, startTime) {
     });
     Logger.log("PlayStation " + code + ": " + picks.length + " games priced by edition (" + fixed + " changed, " + Object.keys(found).length + " editions looked up)");
   }
+
+  // US deals that aren't on sale here: their regular price in this store (psRegionGaps_), not the US price converted
+  try { psRegionGaps_(code, locale, prices, concepts); } catch (e) { Logger.log("PlayStation " + code + " gaps failed: " + e.message); }
 
   // currency: asked once from the first game's price details
   let currency = "";
@@ -975,11 +1010,74 @@ function exportPsRegion_(code, startTime) {
   });
 
   const file = saveJsonToDrive_({ updatedAt: new Date().toISOString(), platform: "ps", region: code, locale: locale,
-                                  currency: currency, prices: prices, extra: extra },
+                                  currency: currency, dealsCount: sale.filter(psIsGame_).length, prices: prices, ext: ext, extra: extra },
                                 "ps_prices_" + code + ".json", "PS_PRICES_" + code + "_FILE_ID");
   Logger.log("PlayStation " + code + ": " + sale.length + " on sale (" + extra.length + " not on sale in the US), currency " +
              currency + ", " + Math.round((Date.now() - startTime) / 1000) + " s " + file.getUrl());
   return true;
+}
+// A deal that's a game (an edition or bundle of one), not an add-on: the site's deal counts are games only
+function psIsGame_(g) {
+  const k = String((g && (g.storeDisplayClassification || g.kind)) || "").trim();
+  return !k || /^(full[ _]game|premium[ _]edition|game[ _]bundle|bundle)$/i.test(k);
+}
+// the extra orders the regions' game lists are read in, by turns (null: none that day, which keeps the run short: each
+// is about 10 more pages a region); what they find is kept PS_EXTRA_DAYS, longer than the turns take to come round
+const PS_EXTRA_SORTS = [{ name: "conceptReleaseDate", isAscending: false }, null, { name: "conceptReleaseDate", isAscending: true }, null];
+const PS_EXTRA_DAYS = 5;
+// A deal's name without the platforms the PlayStation store adds ("… PS4 & PS5"), for matching editions across stores
+function psNameKey_(name) {
+  return norm_(String(name || "").replace(/\s*[-–:|]?\s*\b(PS4|PS5)\b(\s*(&|and|\/|\+)\s*(PS4|PS5)\b)?\s*$/i, ""));
+}
+// The US deals a region's deal list doesn't have (not on sale there) get that store's own price: the same edition is
+// found among the editions of the game (concept) in the region's store, by its store code (psCodeKey_) or else its
+// name, and looked up there. Kept in ps_gaps_<code>.json {US key: [price, regular price, day checked, region product
+// id] or [null, null, day] when the edition wasn't found}, rechecked after PS_GAP_DAYS; at most PS_GAP_MAX lookups a run.
+const PS_GAP_MAX = 800, PS_GAP_DAYS = 3;
+function psRegionGaps_(code, locale, prices, concepts) {
+  const us = psReadJson_("PS_JSON_FILE_ID", { games: [] }).games || [];
+  const cache = psReadJson_("PS_CACHE_FILE_ID", { details: {} }), details = cache.details || {}, offers = cache.offers || {};
+  const propKey = "PS_GAPS_" + code + "_FILE_ID";
+  const gaps = (psReadJson_(propKey, { g: {} }).g) || {}, today = psDay_(Date.now()), stale = psDay_(Date.now() - PS_GAP_DAYS * 864e5);
+  const want = [], ask = {};   // want: [US deal, region concept]; ask: region product id -> true
+  us.forEach(g => {
+    if (!g.key || prices[g.key]) return;
+    const con = (details[g.productId] && details[g.productId].con) || (offers[g.productId] && offers[g.productId].con);
+    const c = con && concepts[String(con)], gp = gaps[g.key];
+    if (gp && gp[2] >= stale) return;   // looked up lately
+    if (!c) return;
+    const ids = psConceptIds_(c), code1 = psCodeKey_(g.productId);
+    const same = code1 && ids.find(id => psCodeKey_(id) === code1);
+    const cand = same ? [same] : ids;
+    if (!cand.length) return;
+    want.push([g, cand]);
+    cand.forEach(id => { ask[id] = true; });
+  });
+  const ids = Object.keys(ask).slice(0, PS_GAP_MAX), asked = new Set(ids);
+  const found = ids.length ? psLookup_("productRetrieveForCtasWithPrice", ids, Date.now() + 90000, locale) : {};
+  let hit = 0, miss = 0;
+  want.forEach(([g, cand]) => {
+    if (!cand.every(id => asked.has(id))) return;   // not (all) asked this run: next run
+    const key = psNameKey_(g.title), res = cand.map(id => found[id]).filter(Boolean);
+    const pick = cand.length === 1 ? res[0] : res.find(p => psNameKey_(p.name) === key);
+    const o = pick && psOfferText_(pick);
+    if (o && o.price !== null) { gaps[g.key] = [o.price, o.base === null ? o.price : o.base, today, pick.id]; hit++; }
+    else { gaps[g.key] = [null, null, today]; miss++; }
+  });
+  // the region's prices: its own deal list first, then these
+  const live = {};
+  us.forEach(g => { if (g.key) live[g.key] = 1; });
+  let used = 0;
+  Object.keys(gaps).forEach(k => {
+    const gp = gaps[k];
+    if (!live[k] || gp[2] < psDay_(Date.now() - 20 * 864e5)) { delete gaps[k]; return; }
+    if (gp[0] === null || prices[k]) return;
+    prices[k] = [gp[0], gp[1], 1e6, gp[1] > gp[0] ? Math.round((1 - gp[0] / gp[1]) * 100) : 0, gp[3]];
+    used++;
+  });
+  saveJsonToDrive_({ updatedAt: new Date().toISOString(), g: gaps }, "ps_gaps_" + code + ".json", propKey);
+  Logger.log("PlayStation " + code + ": US deals not on sale here: " + want.length + " to look up, " + ids.length + " editions asked, " +
+             hit + " found, " + miss + " not; " + used + " priced from this store");
 }
 function exportPsUK() { exportPsRegion_("UK", Date.now()); }   // for running one region by hand
 

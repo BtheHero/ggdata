@@ -21,12 +21,25 @@ const ADDONS_MAX = 40;   // add-ons kept for a game's page (on sale first); adn 
 const addOnName_ = t => String(t || "").toLowerCase().replace(/[™®©]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 // A game's name without its edition ("… Ultimate Edition", ": Deluxe Edition", "… - Cross-Gen Bundle") or platform,
 // so every edition of a game has the same one (also used for "Other editions": addRelated_)
+const ED_WORDS_ = /\s*((standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|collector'?s|anniversary|special|enhanced|legendary|launch|cross-gen|game of the year|goty|platinum|limited|super|\d+(st|nd|rd|th))\s+)+(edition|bundle)\b.*$/i;
 function edStrip_(t) {
   let s = String(t || "").replace(/[™®©]/g, "").replace(/\s*[([](pc|windows|xbox[^)\]]*|ps[45][^)\]]*)[)\]]\s*$/i, "");
   const parts = s.split(/\s*(?:[:–—|]|\s-\s)\s*/);   // only the part after the last separator can name the edition
-  if (parts.length > 1 && /\b(edition|bundle|version)\b/i.test(parts[parts.length - 1])) s = parts.slice(0, -1).join(" ");
-  return s.replace(/\s*((standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|collector'?s|anniversary|special|enhanced|legendary|launch|cross-gen|game of the year|goty|platinum|limited|super|\d+(st|nd|rd|th))\s+)+(edition|bundle)\b.*$/i, "")
+  const last = parts[parts.length - 1];
+  if (parts.length > 1 && /\b(edition|bundle|version)\b/i.test(last)) {
+    // "Skyrim Special Edition", "Kakarot DAIMA Edition": the words before the edition's own name stay (part of the game's
+    // name); "Unholy Edition", "Deluxe Edition": the whole part goes
+    const known = last.replace(ED_WORDS_, "").trim(), w = last.split(/\s+/);
+    parts[parts.length - 1] = known && known !== last ? known : w.length > 2 && /^(edition|bundle|version)$/i.test(w[w.length - 1]) ? w.slice(0, -2).join(" ") : "";
+    s = parts.filter(Boolean).join(" ");
+  }
+  return s.replace(ED_WORDS_, "")
     .replace(/\b(for )?(xbox one|xbox series x\|s|xbox series x|windows( 10)?|pc|ps4|ps5)\b/gi, " ").replace(/\s+/g, " ").trim();
+}
+// A title without the platforms ("… PS4 & PS5", "(Xbox Series X|S)", "for Windows")
+function edStripPlat_(t) {
+  return String(t || "").replace(/[™®©]/g, "").replace(/\s*[([](pc|windows|xbox[^)\]]*|ps[45][^)\]]*)[)\]]\s*$/i, "")
+    .replace(/\s*[-–:|]?\s*\b(for )?(xbox one|xbox series x\|s|xbox series x|windows( 10)?|pc|ps4|ps5)\b(\s*(&|and|\/|\+)\s*(xbox one|xbox series x\|s|ps4|ps5)\b)?\s*$/i, "").trim();
 }
 // How complete an edition is: 0 standard, 1 deluxe/gold/premium…, 2 ultimate/complete/definitive… (an upgrade add-on
 // names the edition it upgrades to)
@@ -59,9 +72,18 @@ function attachAddOns_(games, extra, ps) {
     (fam[name] = fam[name] || []).push(id);
     famOf[id] = name;
   });
+  // The standard edition: one whose name says no edition (or "Standard"), then the one named just as the game is
+  // ("Cult of the Lamb", not "Cult of the Lamb: Unholy Edition"; on PlayStation the game itself, its concept page), then
+  // the cheapest (a free game is the cheapest, not the last), then the most rated. Gold, Deluxe, Ultimate, bundles and
+  // named editions only when there's nothing else.
+  const named = id => { const t = String(games[id].t || "").replace(/\b(standard)\s+(edition|version)\b/i, "");
+    return edRank_(t) || (/\b(edition|bundle|collection|pack|set)\b/i.test(edStripPlat_(t)) ? 1 : 0); };
+  const plain = (id, n) => addOnName_(edStripPlat_(games[id].t)) === n ? 0 : 1;
+  const cost = id => { const m = Number(games[id].m), p = Number(games[id].pr); return m > 0 ? m : p > 0 ? p : m === 0 || p === 0 ? 0 : 1e9; };
   const base = Object.create(null);
   Object.keys(fam).forEach(n => {
-    base[n] = fam[n].slice().sort((a, b) => edRank_(games[a].t) - edRank_(games[b].t) || rc(b) - rc(a) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
+    base[n] = fam[n].slice().sort((a, b) => named(a) - named(b) || plain(a, n) - plain(b, n) || (ps ? /^\d+$/.test(b) - /^\d+$/.test(a) : 0) ||
+      cost(a) - cost(b) || rc(b) - rc(a))[0];
     byName[n] = base[n];
   });
   // the game (its name) an add-on belongs to
@@ -444,6 +466,7 @@ function gamePagesFor_(pre) {
       q: g.sq || e.q, g: (g.genres && g.genres.length) ? g.genres : e.g, u: g.url || e.u,
       r: e.r || g.released || g.releaseDate || relOf(id) || undefined, k: e.k || g.rank || undefined
     });
+    if (ps && g.key && target === id) e.dk = g.key;   // PlayStation: the deal's key in the regions' price files (its price and store page there)
     if (!e.p && g.publisher) e.p = g.publisher;
     if (g.subs && g.subs.length) e.s = g.subs;
     if (g.tiers && g.tiers.length) e.ti = g.tiers;

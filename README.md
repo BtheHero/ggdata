@@ -9,6 +9,10 @@ Scheduled jobs that collect game store data (prices, sales, add-ons) and publish
 - `run.js`: runs one job (`node run.js xbox`, `node run.js media`). The Xbox job also looks up, in each region's own store,
   the prices its browse list leaves out (`xbox_gaps_<code>.json`, merged into the region's price file, with `na`: games not
   sold there) and keeps each region's price history (`rhist/<xbox|ps>-<code>.json`) for the game pages
+- `gs/ps.gs`: PlayStation. Each region's price file also has the US deals that aren't on sale there, at that store's own
+  price (`ps_gaps_<code>.json`), and more of the store's games than its best sellers (`ext`), so the site rarely converts a US price
+- `jobs/lists.js` writes `<xbox|ps>_bestinfo.json` (each game's first release and best Metascore), which the other store's
+  best-of-the-year list reads, so both stores rank a game the same way
 - `gs/addons.gs`: Xbox add-ons, and what each edition includes (`xbox_bundles.json`); every add-on gets a game page
 - `jobs/social.js`: posts the big new deals (after each store run) and the week's best deals (Sundays) to Bluesky, Facebook, Instagram, Pinterest and X; setup in `SOCIAL.md`
 - `seed.js`: copies files the jobs build on from the site's data service

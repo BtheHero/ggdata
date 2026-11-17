@@ -1,8 +1,11 @@
 // Sale and price alerts, sent after each Xbox and PlayStation run (.github/workflows/alerts.yml).
 //
 // Who: the site's accounts with alerts on (POST {action: "alert_subs", key: ALERT_KEY} to SOURCE_API): their wishlist,
-// target prices ({game id: price}), email (when email alerts are on) and push subscriptions.
-// What: a game on the wishlist that's on sale, or any game at or below its target price, in the US store.
+// price alerts ({game id: alert}), email (when email alerts are on) and push subscriptions. An alert is a number (a US
+// dollar price, older alerts), {p, c, r} (a price in region r's store, in its currency c) or {pct, r} (at least that
+// discount in region r's store).
+// What: a game on the wishlist that's on sale in the US store, or any game that reached its alert in the alert's store
+// (that region's own prices, from its price file: never a converted price).
 // Each person gets at most one email and one notification a run, listing everything new. A game is only mentioned again
 // when its price drops further, or after its sale ended and a new one started (data/alerts_sent.json remembers).
 //
@@ -71,15 +74,57 @@ function prices() {
   Object.values(info).forEach(x => { if (x.image && !/^https?:/.test(x.image)) x.image = XIMG + x.image; });
   return info;
 }
+// A region's prices ({key: [price, regular price, ...]}, keys upper-cased) and currency, from the site's data service; once
+// per region and store
+const regionFiles = {};
+async function regionPrices(plat, code) {
+  const k = plat + ":" + code;
+  if (!(k in regionFiles)) {
+    regionFiles[k] = null;
+    try {
+      const r = await fetch(API + "?file=prices&region=" + encodeURIComponent(code) + (plat === "ps" ? "&platform=ps" : ""));
+      const d = await r.json();
+      if (d && d.prices && d.currency) {
+        const up = {};
+        Object.keys(d.prices).forEach(id => { up[id.toUpperCase()] = d.prices[id]; });
+        regionFiles[k] = { currency: d.currency, up };
+      }
+    } catch (e) { console.log("No " + plat + " prices for " + code + ": " + e.message); }
+  }
+  return regionFiles[k];
+}
+// PlayStation deals are filed in the regions' price files by their key (gs/ps.gs psDealKey_), games by their concept id
+const psKeys = {};
+(read("ps_sales.json", { games: [] }).games || []).forEach(g => { if (g.productId && g.key) psKeys[g.productId] = g.key; });
+const money = (v, c, r) => { try { return new Intl.NumberFormat(REGION_LOCALE[r] || "en-US", { style: "currency", currency: c || "USD" }).format(v); } catch (e) { return v + " " + c; } };
+const REGION_LOCALE = { US: "en-US", UK: "en-GB", CA: "en-CA", EU: "en-IE", BR: "pt-BR", AR: "es-AR", TR: "tr-TR", KR: "ko-KR", JP: "ja-JP", IN: "en-IN", AU: "en-AU",
+  MX: "es-MX", PL: "pl-PL", CZ: "cs-CZ", HU: "hu-HU", SE: "sv-SE", NO: "nb-NO", DK: "da-DK", CH: "de-CH", NZ: "en-NZ", ZA: "en-ZA", SG: "en-SG", HK: "zh-HK" };
+const REGION_NAME = { US: "US", UK: "UK", CA: "Canada", EU: "Europe", BR: "Brazil", AR: "Argentina", TR: "Türkiye", KR: "South Korea", JP: "Japan", IN: "India",
+  AU: "Australia", MX: "Mexico", PL: "Poland", CZ: "Czechia", HU: "Hungary", SE: "Sweden", NO: "Norway", DK: "Denmark", CH: "Switzerland", NZ: "New Zealand",
+  ZA: "South Africa", SG: "Singapore", HK: "Hong Kong" };
+// An alert as {p, c, r} or {pct, r}
+const alertOf = t => typeof t === "number" ? { p: t, c: "USD", r: "US" } : t && typeof t === "object" ? { p: Number(t.p) || 0, c: t.c || "USD", r: /^[A-Z]{2}$/.test(t.r || "") ? t.r : "US", pct: Number(t.pct) || 0 } : null;
+// The game's price in the alert's store {price, msrp, cur, r}, or null when that store's price isn't known
+async function priceFor(id, x, a) {
+  if (a.r === "US") return { price: x.price, msrp: x.msrp, cur: "USD", r: "US" };
+  const f = await regionPrices(x.plat, a.r);
+  if (!f) return null;
+  const keys = x.plat === "ps" ? [psKeys[x.page || id], x.page || id] : [id];
+  const p = keys.filter(Boolean).map(k => f.up[String(k).toUpperCase()]).find(Boolean);
+  if (!p || !(p[0] >= 0)) return null;
+  if (a.c && a.c !== f.currency && !a.pct) return null;   // the store changed currency since the alert was set
+  return { price: Number(p[0]) || 0, msrp: Number(p[1]) || Number(p[0]) || 0, cur: f.currency, r: a.r };
+}
+const alertText = a => a.pct ? a.pct + "% off" : money(a.p, a.c, a.r);
 const pageUrl = (id, x) => `${SITE}/game/${x.plat}/${encodeURIComponent(x.page || id)}/${slug(x.title)}`;
 
 function emailHtml(u, items) {
-  const rows = items.map(({ id, x, kind, target }) => {
-    const pct = x.msrp > x.price ? Math.round((1 - x.price / x.msrp) * 100) : 0;
-    const why = kind === "target" ? `Your price: ${usd(target)}` : x.ends ? `Sale ends ${new Date(x.ends).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}` : "On sale";
+  const rows = items.map(({ id, x, kind, a, px }) => {
+    const pct = px.msrp > px.price ? Math.round((1 - px.price / px.msrp) * 100) : 0, m = v => money(v, px.cur, px.r);
+    const why = kind === "target" ? `Your alert: ${alertText(a)}${a.r !== "US" ? " in the " + (REGION_NAME[a.r] || a.r) + " store" : ""}` : x.ends ? `Sale ends ${new Date(x.ends).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}` : "On sale";
     return `<tr><td style="padding:10px 12px 10px 0;width:64px"><a href="${pageUrl(id, x)}"><img src="${esc(x.image)}${x.image.includes("?") ? "" : "?w=128"}" width="64" alt="" style="display:block;border-radius:8px"></a></td>
       <td style="padding:10px 0"><a href="${pageUrl(id, x)}" style="color:#0b1f17;font-weight:700;text-decoration:none">${esc(x.title)}</a>
-      <div style="margin-top:4px"><b style="color:#0d8a5f;font-size:16px">${usd(x.price)}</b>${pct ? ` <s style="color:#777">${usd(x.msrp)}</s> <span style="background:#ffd166;border-radius:6px;padding:1px 6px;font-weight:700;font-size:13px">-${pct}%</span>` : ""}</div>
+      <div style="margin-top:4px"><b style="color:#0d8a5f;font-size:16px">${esc(m(px.price))}</b>${pct ? ` <s style="color:#777">${esc(m(px.msrp))}</s> <span style="background:#ffd166;border-radius:6px;padding:1px 6px;font-weight:700;font-size:13px">-${pct}%</span>` : ""}</div>
       <div style="color:#666;font-size:13px;margin-top:2px">${x.plat === "ps" ? "PlayStation" : "Xbox"} · ${esc(why)}</div></td></tr>`;
   }).join("");
   const unsub = `${SITE}/api?action=unsub&u=${encodeURIComponent(u.uid)}&t=${encodeURIComponent(u.unsub)}`;
@@ -89,13 +134,14 @@ function emailHtml(u, items) {
     <p style="margin:0 0 8px">${items.length === 1 ? "A game you're watching has a new price:" : "Games you're watching have new prices:"}</p>
     <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">${rows}</table>
     <p style="margin:18px 0 0"><a href="${SITE}/deals?wl=1" style="color:#0d8a5f">See your wishlist</a></p></div>
-    <p style="color:#777;font-size:12px;text-align:center;margin:14px 0 0">Prices are the US store's and can change. You get these because you turned on alerts on GameDealTrack.<br>
+    <p style="color:#777;font-size:12px;text-align:center;margin:14px 0 0">Prices are the store's (the US store's unless your alert names another) and can change. You get these because you turned on alerts on GameDealTrack.<br>
     <a href="${unsub}" style="color:#777">Unsubscribe from alert emails</a></p></div></body></html>`;
 }
+const shown = i => money(i.px.price, i.px.cur, i.px.r);
 const subjectOf = items => {
-  const a = items[0], pct = a.x.msrp > a.x.price ? Math.round((1 - a.x.price / a.x.msrp) * 100) : 0;
+  const a = items[0], pct = a.px.msrp > a.px.price ? Math.round((1 - a.px.price / a.px.msrp) * 100) : 0;
   if (items.length > 1) return `${items.length} games you're watching have new prices`;
-  return a.kind === "target" ? `${a.x.title} is now ${usd(a.x.price)} (your price: ${usd(a.target)})` : `${a.x.title} is on sale: ${usd(a.x.price)}${pct ? ` (-${pct}%)` : ""}`;
+  return a.kind === "target" ? `${a.x.title} is now ${shown(a)}${pct ? ` (-${pct}%)` : ""} (your alert: ${alertText(a.a)})` : `${a.x.title} is on sale: ${shown(a)}${pct ? ` (-${pct}%)` : ""}`;
 };
 
 async function main() {
@@ -116,16 +162,21 @@ async function main() {
   for (const u of feed.users || []) {
     const mine = sent[u.uid] || {}, wish = new Set(u.wish || []), targets = u.targets || {};
     const items = [];
-    new Set([...wish, ...Object.keys(targets)]).forEach(id => {
+    for (const id of new Set([...wish, ...Object.keys(targets)])) {
       const x = info[id];
-      if (!x || !(x.price > 0)) return;
-      const onSale = x.msrp > x.price + 0.009, target = Number(targets[id]) || 0, hit = target > 0 && x.price <= target + 0.001;
-      if (!(hit || (onSale && wish.has(id)))) { delete mine[id]; return; }   // nothing to tell: told again at the next sale
-      if (mine[id] && x.price >= mine[id].p - 0.009) return;                 // already told at this price or lower
-      items.push({ id, x, kind: hit ? "target" : "sale", target });
-    });
+      if (!x) continue;
+      // the alert, in its own store (a region's own price: an alert whose store's price isn't known waits)
+      const a = alertOf(targets[id]), px = a ? await priceFor(id, x, a) : null;
+      const hit = !!(px && px.price > 0 && (a.pct ? px.msrp > px.price && (1 - px.price / px.msrp) * 100 >= a.pct - 0.5 : px.price <= a.p + 0.001));
+      const onSale = x.price > 0 && x.msrp > x.price + 0.009;
+      if (!(hit || (onSale && wish.has(id)))) { delete mine[id]; continue; }   // nothing to tell: told again at the next sale
+      const told = hit ? px : { price: x.price, msrp: x.msrp, cur: "USD", r: "US" };
+      // already told at this price or lower (in the same store: a price told in another currency doesn't count)
+      if (mine[id] && (mine[id].r || "US") === told.r && told.price >= mine[id].p - 0.009) continue;
+      items.push({ id, x, kind: hit ? "target" : "sale", a, px: told });
+    }
     if (!items.length) { if (Object.keys(mine).length) sent[u.uid] = mine; else delete sent[u.uid]; continue; }
-    items.sort((a, b) => (a.kind === "target" ? 0 : 1) - (b.kind === "target" ? 0 : 1) || (b.x.msrp - b.x.price) - (a.x.msrp - a.x.price));
+    items.sort((a, b) => (a.kind === "target" ? 0 : 1) - (b.kind === "target" ? 0 : 1) || (b.px.msrp - b.px.price) / (b.px.msrp || 1) - (a.px.msrp - a.px.price) / (a.px.msrp || 1));
     const list = items.slice(0, 20);
     let delivered = false;
     if (u.email && mail) {
@@ -140,7 +191,7 @@ async function main() {
     }
     const a = list[0], note = {
       title: list.length > 1 ? list.length + " games you're watching have new prices" : (a.kind === "target" ? "Your price alert: " : "On sale: ") + a.x.title,
-      body: list.length > 1 ? list.slice(0, 3).map(i => i.x.title + " " + usd(i.x.price)).join(" · ") : usd(a.x.price) + (a.x.msrp > a.x.price ? " (was " + usd(a.x.msrp) + ")" : ""),
+      body: list.length > 1 ? list.slice(0, 3).map(i => i.x.title + " " + shown(i)).join(" · ") : shown(a) + (a.px.msrp > a.px.price ? " (was " + money(a.px.msrp, a.px.cur, a.px.r) + ")" : ""),
       url: list.length > 1 ? "/deals?wl=1" : pageUrl(a.id, a.x).slice(SITE.length), tag: "gdt-alert" };
     if (FCM && (u.fcm || []).length) {
       for (const t of u.fcm) {
@@ -157,7 +208,7 @@ async function main() {
         catch (e) { if (e.statusCode === 404 || e.statusCode === 410) gone.push(s.endpoint); else console.log("Push failed: " + (e.statusCode || e.message)); }
       }
     }
-    if (delivered) { list.forEach(i => { mine[i.id] = { p: i.x.price, d: today }; }); people++; }
+    if (delivered) { list.forEach(i => { mine[i.id] = Object.assign({ p: i.px.price, d: today }, i.px.r !== "US" ? { r: i.px.r } : {}); }); people++; }
     if (Object.keys(mine).length) sent[u.uid] = mine; else delete sent[u.uid];
   }
   if ((gone.length || goneFcm.length) && !DRY) await fetch(API, { method: "POST", body: JSON.stringify({ action: "alert_gone", key: process.env.ALERT_KEY, endpoints: gone, fcm: goneFcm }) }).catch(() => {});

@@ -126,6 +126,12 @@ function fillRegionGaps(code) {
   });
   rf.na = na;
   rf.gap = gap;
+  // the region's number of deals (the home page): games only. The crawl's list is games; the looked-up prices
+  // include add-ons, which are left out.
+  const addOn = new Set();
+  ((read("xbox_addons.json") || {}).games || []).forEach(g => g.productId && addOn.add(String(g.productId).toUpperCase()));
+  Object.keys((read("xbox_addons_all.json") || {}).a || {}).forEach(id => addOn.add(id.toUpperCase()));
+  rf.dealsCount = Object.keys(rf.prices).filter(id => { const p = rf.prices[id]; return (p[1] > p[0] || p[3] > 0) && !addOn.has(id.toUpperCase()); }).length;
   fs.writeFileSync(path.join(dir, gf), JSON.stringify({ updatedAt: new Date().toISOString(), p: gaps }));
   fs.writeFileSync(path.join(dir, file), JSON.stringify(rf));
   console.log(code + " prices the crawl missed: looked up " + order.length + " of " + want.length + " (" + found + " sold there, " + none + " not); " + na.length + " known not sold there");
