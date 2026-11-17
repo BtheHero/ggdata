@@ -68,7 +68,7 @@ function xAddOnRequest_(query, ct, every) {
 function xAddOnQueries_() {
   const games = (psReadJson_("XADDONGAMES_FILE_ID", { games: [] }).games || []).filter(r => r[0] && r[1]);
   games.sort((a, b) => (b[2] || 0) - (a[2] || 0));
-  const queries = [], seen = {};
+  const queries = [], seen = Object.create(null);
   games.forEach((r, i) => {
     const q = xAddOnQuery_(r[1]);
     if (q.length < 2 || seen[q.toLowerCase()]) return;
@@ -143,7 +143,7 @@ function exportXboxAddOns() {
     kept++;
   });
   // the Xbox and Windows listings of the same add-on ("… Cosmetic Pack - Windows 10") once
-  const same = {};
+  const same = Object.create(null);
   const list = Object.keys(found).map(id => found[id]).sort((a, b) => a.rank - b.rank || b.discountPercent - a.discountPercent)
     .sort((a, b) => /windows/i.test(a.title) - /windows/i.test(b.title))
     .filter(g => {
@@ -246,7 +246,7 @@ function xAddOnRelations_() {
       let d = null;
       try { if (r && r.getResponseCode() === 200) d = JSON.parse(r.getContentText()); } catch (e) {}
       if (!d) return;
-      const seen = {};
+      const seen = Object.create(null);
       (d.Products || []).forEach(p => {
         const id = String(p.ProductId || "").toUpperCase();
         const list = (p.MarketProperties && p.MarketProperties[0] && p.MarketProperties[0].RelatedProducts) || [];
@@ -344,7 +344,7 @@ function xBundleContents_() {
   let withItems = 0;
   xDcFetch_(due).forEach(([chunk, products]) => {
     if (!products) return;
-    const seen = {};
+    const seen = Object.create(null);
     products.forEach(p => {
       const id = String(p.ProductId || "").toUpperCase();
       seen[id] = 1;

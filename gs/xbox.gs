@@ -841,7 +841,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
   const wc = wishCounts_(), wished = Object.keys(wc).filter(id => /^[A-Z0-9]{12}$/i.test(id)).map(id => id.toUpperCase())
     .sort((a, b) => wc[b] - wc[a]).slice(0, 40);
   // Newest Play Anywhere games: released, newest first, one per game (editions share a title), 30 kept
-  const xpaSeen = {}, xpaNew = Object.keys(XPA || {}).filter(id => row[id] && row[id][6] && XPA[id] && XPA[id] <= new Date(now).toISOString().slice(0, 10))
+  const xpaSeen = Object.create(null), xpaNew = Object.keys(XPA || {}).filter(id => row[id] && row[id][6] && XPA[id] && XPA[id] <= new Date(now).toISOString().slice(0, 10))
     .sort((a, b) => XPA[b].localeCompare(XPA[a]))
     .filter(id => { const t = editionKey_(row[id][1]); if (xpaSeen[t]) return false; xpaSeen[t] = true; return true; }).slice(0, 30);
   const info = lookupProducts_(Array.from(new Set(coming.concat(added, near, topPaid, mostPlayed, gpIds, wished, xpaNew))));
@@ -891,7 +891,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
 
   // Posters of the most popular games that are on sale, for the home page's deals bar
   // Posters of the most popular games on sale, one per game (different platform versions often share art)
-  const seenArt = {}, seenName = {}, bar = [];
+  const seenArt = Object.create(null), seenName = Object.create(null), bar = [];
   sales.slice().sort((a, b) => (a.rank || 1e9) - (b.rank || 1e9)).forEach(g => {
     const im = shortImg_(g.image) || (row[String(g.productId).toUpperCase()] || [])[6];
     const key = String(im || "").split("?")[0];
@@ -905,7 +905,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
   // spotPool: the SPOT_TOP most-rated games on sale.
   // hotPool: see hotPool_. The home page picks 7 at random a day from each. popIds: SEE_ALL_RATINGS or more,
   // for the big-discounts "See all" list.
-  const rated = [], seenTitle = {};
+  const rated = [], seenTitle = Object.create(null);
   sales.map(g => String(g.productId).toUpperCase()).filter(id => RATINGS[id] && saleBy[id].image)
     .sort((a, b) => RATINGS[b][1] - RATINGS[a][1]).forEach(id => {
       const t = editionKey_(saleBy[id].title);
@@ -920,7 +920,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
   const nRatings = g => (RATINGS[String(g.productId).toUpperCase()] || [0, 0])[1];
   // Trending deals: the "Trending games" order (the full list's), games on sale only, one per game
   const onSale = id => saleBy[id] && Number(saleBy[id].msrp) > Number(saleBy[id].price);
-  const trendSeen = {}, trendsale = catalog.map(r => String(r[0]).toUpperCase()).filter(onSale)
+  const trendSeen = Object.create(null), trendsale = catalog.map(r => String(r[0]).toUpperCase()).filter(onSale)
     .filter(id => { const t = editionKey_(saleBy[id].title); if (trendSeen[t]) return false; trendSeen[t] = true; return true; })
     .slice(0, 30).map(id => fromSale(saleBy[id])).filter(ok).slice(0, N);
   // Top Metacritic deals: games on sale with a Metascore of 80+, highest first (then most store ratings), one per game,
@@ -969,7 +969,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
 // scores: {id: [score, slug]}; idOf(g): the game's id in it; nRatings(g): store ratings, the tie-break
 function topMetaSale_(sales, scores, idOf, nRatings, toEntry, ok, n) {
   const sc = g => { const s = scores[idOf(g)] || scores[String(idOf(g)).toLowerCase()]; return s && s[0] > 0 ? s : null; };
-  const seen = {};
+  const seen = Object.create(null);
   return sales.filter(g => sc(g) && sc(g)[0] >= 80 && Number(g.msrp) > Number(g.price))
     .sort((a, b) => sc(b)[0] - sc(a)[0] || nRatings(b) - nRatings(a))
     // one per game: editions share the Metacritic page (slug), or at least the base title
@@ -981,7 +981,7 @@ function topMetaSale_(sales, scores, idOf, nRatings, toEntry, ok, n) {
 // Used by both exports: toEntry turns a sale into a home entry.
 // rated(g): the game's number of store ratings when sorting by that (Xbox); without it, by the store's popularity rank
 function bargains_(sales, max, toEntry, ok, rated) {
-  const seen = {};
+  const seen = Object.create(null);
   return sales.filter(g => g.image && Number(g.price) < max && Number(g.price) < Number(g.msrp))
     .sort((a, b) => (rated ? rated(b) - rated(a) : 0) || (a.rank || 1e9) - (b.rank || 1e9))
     .filter(g => { const t = scoreKey_(g.title); if (!t || seen[t]) return false; return (seen[t] = true); })
@@ -1091,7 +1091,7 @@ function fetchChartIds_(url) {
     let html = res.getContentText();
     const start = html.indexOf("Showing 1");   // skip the header and menu links
     if (start > 0) html = html.slice(start);
-    const ids = [], seen = {};
+    const ids = [], seen = Object.create(null);
     const re = /\/p\/[a-z0-9-]+\/([a-z0-9]{12})(?![a-z0-9])/gi;
     let m;
     while ((m = re.exec(html))) {
@@ -1147,7 +1147,7 @@ function norm_(s) { return String(s || "").replace(/[™®©℠]/g, "").normaliz
 // The pick: a console version over a PC-only one, then the lowest regular price (the standard edition).
 // rows: full list rows [id, title, publisher, price, msrp, currency, image, rank, subs, pc, ...]
 function retailEditions_(rows) {
-  const best = {};
+  const best = Object.create(null);
   rows.forEach(r => {
     if (!r[0] || !r[1] || !(Number(r[4]) > 0 || Number(r[3]) > 0) || /\b(upgrade|bundle|pack|season pass|soundtrack|dlc)\b/i.test(r[1])) return;
     const k = editionKey_(r[1]), pc = r[9] || /\(pc\)|\bfor pc\b|\bwindows\b/i.test(r[1]) ? 1 : 0, m = Number(r[4]) || Number(r[3]);
@@ -1346,7 +1346,7 @@ function fillScores() {
   // Xbox and PlayStation take turns, so both fill up at the same pace.
   const both = [], n = Math.max(plats[""].length, plats["PS_"].length);
   for (let i = 0; i < n; i++) { if (plats[""][i]) both.push(plats[""][i]); if (plats["PS_"][i]) both.push(plats["PS_"][i]); }
-  const need = [], seen = {};
+  const need = [], seen = Object.create(null);
   both.forEach(([id, title]) => {
     const k = scoreKey_(title), s = store[k];
     if (!k || seen[k]) return;

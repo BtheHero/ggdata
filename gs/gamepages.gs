@@ -50,7 +50,7 @@ function attachAddOns_(games, extra, ps) {
   const rc = id => (games[id].ra && games[id].ra[1]) || 0;
   const page = id => { if (!id) return null; const k = games[id] ? id : games[String(id).toUpperCase()] ? String(id).toUpperCase() : null; return !k ? null : games[k].a && games[games[k].a] ? games[k].a : k; };
   // the editions of each game, and its standard (base) edition
-  const fam = {}, famOf = {}, byName = {};
+  const fam = Object.create(null), famOf = {}, byName = Object.create(null);   // (no built-in keys: a game called "Constructor" is just a name)
   Object.keys(games).forEach(id => {
     const g = games[id];
     if (g.a || g.kd || !g.t || /\b(upgrade|season pass|dlc|soundtrack|add-?on)\b/i.test(g.t)) return;
@@ -59,7 +59,7 @@ function attachAddOns_(games, extra, ps) {
     (fam[name] = fam[name] || []).push(id);
     famOf[id] = name;
   });
-  const base = {};
+  const base = Object.create(null);
   Object.keys(fam).forEach(n => {
     base[n] = fam[n].slice().sort((a, b) => edRank_(games[a].t) - edRank_(games[b].t) || rc(b) - rc(a) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
     byName[n] = base[n];
@@ -123,7 +123,7 @@ function attachAddOns_(games, extra, ps) {
   const off = r => r[4] > r[3] ? 1 - r[3] / r[4] : 0;
   Object.keys(lists).forEach(id => {
     // the Xbox and Windows listings of one add-on ("… - Windows 10") once
-    const same = {};
+    const same = Object.create(null);
     const list = lists[id].sort((a, b) => b[6] - a[6] || off(b) - off(a) || a[7] - b[7] || /windows/i.test(a[1]) - /windows/i.test(b[1]))
       .filter(r => {
         const k = addOnName_(String(r[1]).replace(/[\s\-–:(]*(windows( 10)?|pc|xbox one|xbox series x\|s)\)?\s*$/i, ""));
@@ -225,7 +225,7 @@ function addRelated_(games, ps) {
   const df = Object.create(null);
   list.forEach(x => {
     x.tok = relWords_(x.g.d);
-    const seen = {};
+    const seen = Object.create(null);
     x.tok.forEach(w => { if (!seen[w]) { seen[w] = 1; df[w] = (df[w] || 0) + 1; } });
   });
   const maxDf = Math.max(20, N * 0.06);   // words in more than 6% of descriptions aren't distinctive
