@@ -19,47 +19,91 @@ const GAME_SHARDS = 64;
 const PS_ADDON_KINDS = /^(add-?on|add-on pack|map|level|costume|vehicle|character|item|episode|season pass|virtual currency|weapons?|track|avatar|theme|soundtrack|expansion)$/i;
 const ADDONS_MAX = 40;   // add-ons kept for a game's page (on sale first); adn = how many it has in all, ads = how many are on sale
 const addOnName_ = t => String(t || "").toLowerCase().replace(/[™®©]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+// A game's name without its edition ("… Ultimate Edition", ": Deluxe Edition", "… - Cross-Gen Bundle") or platform,
+// so every edition of a game has the same one (also used for "Other editions": addRelated_)
+function edStrip_(t) {
+  let s = String(t || "").replace(/[™®©]/g, "").replace(/\s*[([](pc|windows|xbox[^)\]]*|ps[45][^)\]]*)[)\]]\s*$/i, "");
+  const parts = s.split(/\s*(?:[:–—|]|\s-\s)\s*/);   // only the part after the last separator can name the edition
+  if (parts.length > 1 && /\b(edition|bundle|version)\b/i.test(parts[parts.length - 1])) s = parts.slice(0, -1).join(" ");
+  return s.replace(/\s*((standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|collector'?s|anniversary|special|enhanced|legendary|launch|cross-gen|game of the year|goty|platinum|limited|super|\d+(st|nd|rd|th))\s+)+(edition|bundle)\b.*$/i, "")
+    .replace(/\b(for )?(xbox one|xbox series x\|s|xbox series x|windows( 10)?|pc|ps4|ps5)\b/gi, " ").replace(/\s+/g, " ").trim();
+}
+// How complete an edition is: 0 standard, 1 deluxe/gold/premium…, 2 ultimate/complete/definitive… (an upgrade add-on
+// names the edition it upgrades to)
+function edRank_(t) {
+  const s = String(t || "");
+  if (/\b(ultimate|complete|definitive|collector'?s|legendary|vault|platinum|game of the year|goty)\b/i.test(s)) return 2;
+  if (/\b(deluxe|gold|premium|special|enhanced|launch|anniversary|digital deluxe)\b/i.test(s)) return 1;
+  return 0;
+}
 // extra: add-ons that aren't on sale (no page of their own; their card links to the store):
 // [{id, t title, a art, m regular price, kd kind, o order}]
+//
+// Each add-on is listed on every edition of its game (Standard, Deluxe, Ultimate, the PC version…):
+// - its game: the one the store says (Xbox: xbox_addon_rel.json, xAddOnRelations_), else the game whose name (without its
+//   edition) the add-on's title starts with; never an edition's own name ("GTA VI Ultimate Edition Upgrade" is for GTA VI);
+// - an edition that already includes it (the store's bundle list) shows it as included (g.adi: those add-ons' ids);
+// - an upgrade ("Upgrade to Ultimate Edition") is only listed on the editions below the one it upgrades to.
+// The add-on's own page links to its game's standard edition (g.ao).
 function attachAddOns_(games, extra, ps) {
-  // the name of every game (not add-on) -> its id; the better-known game wins when names repeat
-  const byName = {};
+  const rel = ps ? {} : (psReadJson_("XADDON_REL_FILE_ID", { r: {} }).r || {});
+  const rc = id => (games[id].ra && games[id].ra[1]) || 0;
+  const page = id => { if (!id) return null; const k = games[id] ? id : games[String(id).toUpperCase()] ? String(id).toUpperCase() : null; return !k ? null : games[k].a && games[games[k].a] ? games[k].a : k; };
+  // the editions of each game, and its standard (base) edition
+  const fam = {}, famOf = {}, byName = {};
   Object.keys(games).forEach(id => {
     const g = games[id];
-    if (g.a || g.kd || !g.t) return;
-    const n = addOnName_(cleanTitle_(g.t));
-    if (n.length < 3) return;
-    const old = byName[n] && games[byName[n]];
-    if (!old || ((g.ra && g.ra[1]) || 0) > ((old.ra && old.ra[1]) || 0)) byName[n] = id;
+    if (g.a || g.kd || !g.t || /\b(upgrade|season pass|dlc|soundtrack|add-?on)\b/i.test(g.t)) return;
+    const name = addOnName_(edStrip_(g.t));
+    if (name.length < 3) return;
+    (fam[name] = fam[name] || []).push(id);
+    famOf[id] = name;
   });
-  // the game an add-on belongs to: the longest game name its title starts with (word by word)
-  const parentOf = (id, title) => {
+  const base = {};
+  Object.keys(fam).forEach(n => {
+    base[n] = fam[n].slice().sort((a, b) => edRank_(games[a].t) - edRank_(games[b].t) || rc(b) - rc(a) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
+    byName[n] = base[n];
+  });
+  // the game (its name) an add-on belongs to
+  const gameOf = (id, title) => {
+    const r = rel[String(id).toUpperCase()], p = r && r[0] ? page(r[0]) : null;
+    if (p && famOf[p]) return famOf[p];
     const words = addOnName_(title).split(" ");
     for (let k = words.length - 1; k >= 1; k--) {
-      const parent = byName[words.slice(0, k).join(" ")];
-      if (parent && parent !== id) return parent;
+      const n = words.slice(0, k).join(" ");
+      if (byName[n] && byName[n] !== id) return n;
     }
     return null;
   };
   const art = u => ps ? String(u || "").replace("https://image.api.playstation.com/vulcan/ap/rnd/", "~") : (u || "");
-  const lists = {};
-  let matched = 0;
+  const lists = {}, incl = {};
+  let matched = 0, more = 0, viaStore = 0;
+  const place = (id, title, kd, row) => {
+    const n = gameOf(id, title);
+    if (!n) return false;
+    const r = rel[String(id).toUpperCase()];
+    if (r && r[0] && page(r[0])) viaStore++;
+    const eds = fam[n].length <= 30 ? fam[n] : [base[n]];   // a very long list is a common name, not one game's editions
+    const inBundle = new Set(((r && r[1]) || []).map(page).filter(Boolean));
+    const up = /\bupgrade\b/i.test(title), to = edRank_(title.replace(/^.*?\bupgrade\b/i, "") || title) || edRank_(title);
+    eds.forEach(e => {
+      if (up && (to ? edRank_(games[e].t) >= to : e !== base[n])) return;   // an upgrade: the editions below its target only
+      (lists[e] = lists[e] || []).push(row);
+      if (inBundle.has(e)) (incl[e] = incl[e] || []).push(id);
+    });
+    return base[n];
+  };
   Object.keys(games).forEach(id => {
     const g = games[id];
     if (!g.kd) return;
-    const parent = parentOf(id, g.t);
-    if (!parent) return;
-    g.ao = [parent, games[parent].t];
-    (lists[parent] = lists[parent] || []).push([id, g.t, art(g.q || g.i), g.pr || 0, g.m || 0, g.kd, 1, 0]);
+    const b = place(id, g.t, g.kd, [id, g.t, art(g.q || g.i), g.pr || 0, g.m || 0, g.kd, 1, 0]);
+    if (!b) return;
+    g.ao = [b, games[b].t];
     matched++;
   });
-  let more = 0;
   (extra || []).forEach(x => {
     if (games[x.id] && games[x.id].kd) return;   // on sale: already listed
-    const parent = parentOf(x.id, x.t);
-    if (!parent) return;
-    (lists[parent] = lists[parent] || []).push([x.id, x.t, art(x.a), x.m || 0, x.m || 0, x.kd || "Add-on", 0, x.o || 0]);
-    more++;
+    if (place(x.id, x.t, x.kd, [x.id, x.t, art(x.a), x.m || 0, x.m || 0, x.kd || "Add-on", 0, x.o || 0])) more++;
   });
   const off = r => r[4] > r[3] ? 1 - r[3] / r[4] : 0;
   Object.keys(lists).forEach(id => {
@@ -74,8 +118,9 @@ function attachAddOns_(games, extra, ps) {
     g.adn = list.length;
     g.ads = list.filter(r => r[6]).length;
     g.ad = list.slice(0, ADDONS_MAX).map(r => r[6] ? r.slice(0, 6) : r.slice(0, 7));   // [id, title, art, price, regular price, kind(, 0 = no page)]
+    if (incl[id]) g.adi = incl[id].filter(x => g.ad.some(r => r[0] === x));   // included in this edition
   });
-  return matched + " on sale, " + more + " more not on sale";
+  return matched + " on sale, " + more + " more not on sale (" + viaStore + " placed by the store's own game link)";
 }
 
 // PlayStation only lists add-ons that are on sale. Every one seen on sale is remembered here

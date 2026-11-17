@@ -128,6 +128,7 @@ const jobs = {
   // Xbox add-ons on sale (gs/addons.gs), then the Xbox game pages (gs/gamepages.gs)
   pages() {
     try { exportXboxAddOns(); } catch (e) { console.log("Add-ons failed: " + e.message); }
+    try { xAddOnRelations_(); } catch (e) { console.log("Add-on relations failed: " + e.message); }
     console.log("== add-ons done (" + secs() + ")");
     const n = gamePagesFor_("");
     console.log("== Xbox game pages: " + n + " games (" + secs() + ")");
