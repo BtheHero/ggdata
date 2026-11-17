@@ -13,7 +13,7 @@
 //   Facebook   FB_PAGE_ID, FB_PAGE_TOKEN (a never-expiring Page token)
 //   Instagram  IG_USER_ID (the Instagram business account linked to the Facebook page; uses FB_PAGE_TOKEN)
 //   Pinterest  PINTEREST_BOARD_ID, PINTEREST_APP_ID, PINTEREST_APP_SECRET, PINTEREST_REFRESH_TOKEN
-//   X          X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET (free tier: posts are capped by X_DAILY_CAP)
+//   X          X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET (paid per post: capped by X_DAILY_CAP)
 const fs = require("fs"), path = require("path"), crypto = require("crypto");
 const DATA = path.resolve(process.env.DATA_DIR || "data");
 const env = process.env, DRY = env.SOCIAL_DRY_RUN === "1";
@@ -23,7 +23,7 @@ const MIN_SCORE = Number(env.SOCIAL_MIN_SCORE || 85);   // deal score (0-100, gs
 const MIN_PCT = Number(env.SOCIAL_MIN_PCT || 50);       // …and the discount it needs (a new lowest price needs 30%)
 const MAX_DEALS = Number(env.SOCIAL_MAX_DEALS || 3);    // per run (two runs a day per store)
 const REPOST_DAYS = 30;
-const X_DAILY_CAP = Number(env.X_DAILY_CAP || 15);      // X's free tier allows only a few posts a day per account
+const X_DAILY_CAP = Number(env.X_DAILY_CAP || 15);      // X bills every post: a cap on the spend
 const PLAT = { xbox: { name: "Xbox", tags: ["Xbox", "XboxDeals", "GameDeals"] }, ps: { name: "PlayStation", tags: ["PlayStation", "PSDeals", "GameDeals"] } };
 
 const read = (f, d) => { try { return JSON.parse(fs.readFileSync(path.join(DATA, f), "utf8")); } catch (e) { return d; } };
@@ -199,7 +199,7 @@ const NETWORKS = {
     ready: () => env.X_API_KEY && env.X_API_SECRET && env.X_ACCESS_TOKEN && env.X_ACCESS_SECRET,
     async post(p) {
       const log = read("social/x-log.json", {}), day = today();
-      if ((log[day] || 0) >= X_DAILY_CAP) return "skipped (" + X_DAILY_CAP + " posts today, the free tier's cap)";
+      if ((log[day] || 0) >= X_DAILY_CAP) return "skipped (" + X_DAILY_CAP + " posts today, X_DAILY_CAP)";
       // links count as 23 characters on X
       const url = withUtm(p.url, "x"), tags = p.tags.slice(0, 2).map(t => "#" + t).join(" ");
       let text = fit([p.head, p.line, tags], 280 - 24) + "\n" + url;

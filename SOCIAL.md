@@ -41,11 +41,14 @@ Links aren't clickable in Instagram captions, so posts say "Link in bio": put `h
 3. The board id: `GET https://api.pinterest.com/v5/boards` with the access token.
 4. Secrets: `PINTEREST_BOARD_ID`, `PINTEREST_APP_ID`, `PINTEREST_APP_SECRET`, `PINTEREST_REFRESH_TOKEN`. The job gets a fresh access token each run; renew the refresh token once a year.
 
-## X / Twitter (free tier, limited)
+## X / Twitter (paid, optional)
 
-X's free API tier lets you post, but only a small number of posts (check the current limit at developer.x.com: it has changed several times). The job stops at `X_DAILY_CAP` posts a day (default 15; set it as a repository variable to lower it, and add `X_DAILY_CAP: ${{ vars.X_DAILY_CAP }}` to the workflow steps' `env`). If X answers 429 (limit reached), that post is skipped on X only.
+X has no free API tier any more (since early 2026): posting is billed per post, about $0.015 a post and about $0.20 for a
+post with a link (all of these have one), per third-party write-ups; check X's developer pricing page for current rates.
+At this job's volume that is roughly $50-75 a month, so X is left out unless its secrets are set. `X_DAILY_CAP`
+(default 15 posts a day) caps the spend.
 
-1. developer.x.com → sign up for the Free plan → create a project and app.
+1. developer.x.com → create a project and app, and add credit for pay-per-use.
 2. App settings → User authentication settings: **Read and write**.
 3. Keys and tokens: the **API Key and Secret**, then generate the **Access Token and Secret** (after setting Read and write, or they'll be read-only).
 4. Secrets: `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET`.
@@ -59,7 +62,7 @@ Repository variables, if the defaults don't suit (add them to the steps' `env` i
 | `SOCIAL_MIN_SCORE` | 85 | Deal score a deal needs |
 | `SOCIAL_MIN_PCT` | 50 | Discount it needs (30% for a new lowest price) |
 | `SOCIAL_MAX_DEALS` | 3 | Deals per run per store |
-| `X_DAILY_CAP` | 15 | Posts a day on X |
+| `X_DAILY_CAP` | 15 | Posts a day on X (each one is paid) |
 | `FB_GRAPH_VERSION` | v23.0 | Facebook Graph API version |
 
 What was posted: `data/social/<xbox|ps|weekly>-posted.json` in the bucket. Delete an entry to allow a game to be posted again.
