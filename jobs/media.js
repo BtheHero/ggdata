@@ -158,7 +158,7 @@ function psMedia(dataDir, srcDir) {
   const due = g => !out[g.id] || noRel(g) || out[g.id].t < (g.fresh ? now : stale);   // new games: once a day
   const order = g => g.fresh ? 0 : !out[g.id] ? 1 : noRel(g) ? 2 : 3;
   const need = games.filter(due)
-    .sort((a, b) => (order(a) - order(b)) || (out[a.id] ? out[a.id].t - out[b.id].t : 0) || (b.sale - a.sale) || (a.rank - b.rank))
+    .sort((a, b) => (order(a) - order(b)) || (((out[a.id] && out[a.id].t) || 0) - ((out[b.id] && out[b.id].t) || 0)) || (b.sale - a.sale) || (a.rank - b.rank))
     .slice(0, PS_MAX);
   console.log("PlayStation: " + games.filter(g => g.fresh).length + " new games (looked up first, every day)");
   let found = 0, failed = 0;
