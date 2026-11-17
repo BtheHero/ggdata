@@ -476,6 +476,21 @@ function gamePagesFor_(pre) {
     if (!e.ra) e.ra = rating(id);
     if (!e.h && hist[id]) e.h = hist[id];
   });
+  // ids instead of names: the publisher's id on Xbox (pb, xPublisherIds_), the game's id (concept) on PlayStation (cn), so a
+  // game's editions and a publisher's games are told apart by id (the lists job: jobs/lists.js)
+  if (ps) {
+    const conOfPid = {};
+    cat.forEach(r => { if (!r[0]) return; [r[13]].concat(r[16] ? String(r[16]).split(",") : []).forEach(pid => { if (pid) conOfPid[pid] = String(r[0]); }); });
+    Object.keys(games).forEach(id => {
+      const g = games[id];
+      if (g.a) return;
+      const cn = /^\d+$/.test(id) ? id : (psDetails[id] && psDetails[id].con) || conOfPid[id] || "";
+      if (cn) g.cn = String(cn);
+    });
+  } else {
+    const pubIds = psReadJson_("XPUBIDS_FILE_ID", { p: {} }).p || {};
+    Object.keys(games).forEach(id => { const p = pubIds[String(id).toUpperCase()]; if (p && p[0] && !games[id].a) games[id].pb = p[0]; });
+  }
   console.log((ps ? "PlayStation" : "Xbox") + " add-ons matched to their game: " + attachAddOns_(games, ps ? psAddOnsSeen_(games) : xAddOnsAll_(), ps));
 
   addRelated_(games, ps);
@@ -503,6 +518,7 @@ function gamePagesFor_(pre) {
           games[pid] = { t: e[3], p: g.p, i: g.i, q: g.q, pr: e[0] || 0, m: e[1] || e[0] || 0, c: g.c, s: g.s, ti: g.ti, r: g.r, g: g.g,
                          d: g.d, ra: g.ra, mc: g.mc, pc: g.pc, h: hist[pid] || undefined, u: "https://store.playstation.com/en-us/product/" + pid };
           made[pid] = [id];
+          if (g.cn || /^\d+$/.test(id)) games[pid].cn = g.cn || id;
         }
         list.push([to, to === pid ? e[3] : games[to].t, art(to === pid && !made[pid] ? games[pid] : g), e[0] || 0, e[1] || 0]);
       });

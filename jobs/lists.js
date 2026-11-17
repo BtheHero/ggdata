@@ -67,12 +67,17 @@ const pubKey = p => String(p || "").toLowerCase().normalize("NFKD").replace(/[â„
   .replace(/\s+/g, " ").trim()
   .replace(/^(.+?)(\s(entertainment|games|game|studios|studio|interactive|publishing|software|softworks|digital|media|productions))+$/, "$1");
 
+// A game, whatever the edition: PlayStation's game id (concept: cn, from the game pages); Xbox has no id shared by a
+// game's editions, so there it's the name without the edition
+const gid = id => PS && games[id].cn ? "c" + games[id].cn : editionKey(games[id].t);
+// A publisher: Xbox's publisher id (pb, from the store's product data); PlayStation gives none, so its name (pubKey)
+const pk = g => !PS && g.pb ? "x" + g.pb : pubKey(g.p);
 // the best-known edition of each game: the one with the most store ratings, then the standard (cheapest) one
 const byGame = {};
 ids.forEach(id => {
   const g = games[id];
   if (!isGame(g)) return;
-  const k = editionKey(g.t);
+  const k = gid(id);
   if (!k) return;
   (byGame[k] = byGame[k] || []).push(id);
 });
@@ -81,8 +86,11 @@ const main = {};   // game key -> the edition that stands for it
 Object.keys(byGame).forEach(k => {
   main[k] = byGame[k].slice().sort((a, b) => rc(b) - rc(a) || mcOf(games[b]) - mcOf(games[a]) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
 });
-const one = list => { const seen = {}; return list.filter(id => { const k = editionKey(games[id].t); if (seen[k]) return false; seen[k] = 1; return true; }); };
+const one = list => { const seen = {}; return list.filter(id => { const k = gid(id); if (seen[k]) return false; seen[k] = 1; return true; }); };
 const mains = Object.keys(main).map(k => main[k]);
+// a game's name (without its edition) -> its main edition: matching names from outside (IGN, the PlayStation Blog)
+const byTitle = {};
+mains.forEach(id => { const k = editionKey(games[id].t); if (k && (!byTitle[k] || rc(id) > rc(byTitle[k]))) byTitle[k] = id; });
 
 // ---------- recent and upcoming releases ----------
 const recent = one(ids.filter(id => isGame(games[id]) && relOf(games[id]) <= NOW && relOf(games[id]) > NOW - RECENT_DAYS * DAY)
@@ -105,8 +113,8 @@ function bestOf(y) {
   const from = Date.UTC(y, 0, 1), to = Date.UTC(y + 1, 0, 1);
   // a game counts in the year of its first release (its earliest edition)
   const first = {};
-  ids.forEach(id => { const g = games[id]; if (!isGame(g) || !relOf(g)) return; const k = editionKey(g.t); first[k] = Math.min(first[k] || Infinity, relOf(g)); });
-  return mains.filter(id => { const t = first[editionKey(games[id].t)]; return mcOf(games[id]) > 0 && t >= from && t < to && t <= NOW; })
+  ids.forEach(id => { const g = games[id]; if (!isGame(g) || !relOf(g)) return; const k = gid(id); first[k] = Math.min(first[k] || Infinity, relOf(g)); });
+  return mains.filter(id => { const t = first[gid(id)]; return mcOf(games[id]) > 0 && t >= from && t < to && t <= NOW; })
     .sort((a, b) => mcOf(games[b]) - mcOf(games[a]) || rc(b) - rc(a)).slice(0, BEST_N).map(id => clean(entry(id, games[id])));
 }
 const years = [year].concat(new Date(NOW).getUTCMonth() === 0 ? [year - 1] : []);   // last year's list until January ends
@@ -121,7 +129,7 @@ const bestYears = fs.readdirSync(DATA).map(f => (f.match(new RegExp("^" + plat +
 // ---------- publishers: unique games each (editions and add-ons once) ----------
 const pubs = {};
 mains.forEach(id => {
-  const g = games[id], k = pubKey(g.p);
+  const g = games[id], k = pk(g);
   if (!k) return;
   const p = pubs[k] = pubs[k] || { k, names: {}, n: 0, sale: 0, ratings: 0, top: [] };
   p.names[g.p] = (p.names[g.p] || 0) + 1;
@@ -136,6 +144,22 @@ const publishers = Object.keys(pubs).map(k => pubs[k]).filter(p => p.n >= 2).sor
     const top = i < 300 ? p.top.sort((a, b) => rc(b) - rc(a)).slice(0, 4).map(id => art(games[id].q || games[id].i)).filter(Boolean) : [];
     return clean({ name, k: p.k, n: p.n, sale: p.sale, rc: p.ratings, top });
   });
+
+// every publisher's games (all editions and add-ons), for the publisher pages: {pubs: {key: {name, ids}}, byName: {pubKey(name): key}}
+const pubGames = {}, byName = {};
+ids.forEach(id => {
+  const g = games[id];
+  if (!g || g.a || !g.t || !g.p) return;
+  const k = pk(g);
+  if (!k) return;
+  const p = pubGames[k] = pubGames[k] || { names: {}, ids: [] };
+  p.ids.push(id);
+  p.names[g.p] = (p.names[g.p] || 0) + 1;
+  const nk = pubKey(g.p);
+  if (nk && (!byName[nk] || pubGames[byName[nk]].ids.length < p.ids.length)) byName[nk] = k;
+});
+Object.keys(pubGames).forEach(k => { const p = pubGames[k]; p.name = Object.keys(p.names).sort((a, b) => p.names[b] - p.names[a])[0]; delete p.names; });
+write(plat + "_pubgames.json", { updatedAt: new Date().toISOString(), pubs: pubGames, byName });
 
 // ---------- publisher rows on the home page ----------
 // The big publishers (names as the stores spell them, by pubKey); a row when more than PUB_MIN of their games are on sale,
@@ -194,8 +218,7 @@ async function wanted() {
   let list = [];
   if (names) {
     // each name, matched to this store's game of the same name (any edition): only games this store sells or lists
-    const byKey = {};
-    Object.keys(main).forEach(k => { byKey[k] = main[k]; });
+    const byKey = byTitle;
     names.forEach(n => {
       const k = editionKey(n), id = byKey[k];
       if (id && !list.includes(id)) list.push(id);
@@ -231,8 +254,7 @@ async function psPlus() {
       title: ((x.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/) || [])[1] || "").replace(/&#8217;/g, "'").replace(/&amp;/g, "&").replace(/&#8211;|&#8212;/g, "-"),
       date: Date.parse((x.match(/<pubDate>([^<]+)<\/pubDate>/) || [])[1]) || 0
     }));
-    const byKey = {};
-    Object.keys(main).forEach(k => { byKey[k] = main[k]; });
+    const byKey = byTitle;
     const out = [];
     items.filter(it => /playstation plus (monthly games|game catalog|games? catalog|extra|premium)/i.test(it.title) && it.date > NOW - 35 * DAY).forEach(it => {
       const tier = /monthly/i.test(it.title) ? "Essential" : /premium/i.test(it.title) ? "Premium" : "Extra & Premium";
