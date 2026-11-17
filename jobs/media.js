@@ -57,6 +57,17 @@ function saveShards(dir, plat, all) {
 }
 
 // ---------- Xbox ----------
+// The site shows covers in a 2:3 poster frame. The browse list the Xbox export reads often gives no image sizes, so
+// its cover can be the square box art. The catalog here gives sizes: each game's real portrait cover (same ratio test as
+// xbox.gs portrait_), saved as data/xbox_posters.json {id: short picture name}, which the Xbox export puts in the
+// full game list in place of a cover it can't check.
+const portrait = x => x && x.Uri && Number(x.Width) > 0 && Number(x.Height) / Number(x.Width) >= 1.3 && Number(x.Height) / Number(x.Width) <= 1.7;
+function xboxPoster(p) {
+  const imgs = (((p.LocalizedProperties || [])[0] || {}).Images) || [];
+  const x = imgs.find(i => i.ImagePurpose === "Poster" && portrait(i)) ||
+    imgs.find(i => /^(BoxArt|Poster|BrandedKeyArt|FeaturePromotionalSquareArt)$/.test(i.ImagePurpose) && portrait(i));
+  return x ? xShort(x.Uri) : "";
+}
 function xboxEntry(p) {
   const lp = (p.LocalizedProperties || [])[0] || {};
   const imgs = lp.Images || [];
@@ -79,6 +90,7 @@ function xboxMedia(dataDir) {
     .filter(id => /^[A-Z0-9]{12}$/.test(id)).filter(uniq);
   if (!ids.length) { console.log("Xbox: no game list yet (run the Xbox job first)"); return; }
   const dir = path.join(dataDir, "media"), old = loadShards(dir, "xbox"), out = {};
+  const oldPosters = readJson(path.join(dataDir, "xbox_posters.json"), {}), posters = {};
   const batches = [];
   for (let i = 0; i < ids.length; i += 20) batches.push(ids.slice(i, i + 20));
   let found = 0, failed = 0;
@@ -96,6 +108,8 @@ function xboxMedia(dataDir) {
         if (!p.ProductId) return;
         const id = String(p.ProductId).toUpperCase(), e = xboxEntry(p), r = keepRel(old[id] && old[id].r, e.r);
         if (r) e.r = r;
+        const pp = xboxPoster(p);
+        if (pp) posters[id] = pp;
         out[id] = e;
         found++;
       });
@@ -103,9 +117,11 @@ function xboxMedia(dataDir) {
   }
   // a game the store didn't answer for keeps what it had
   let kept = 0;
-  ids.forEach(id => { if (!out[id] && old[id]) { out[id] = old[id]; kept++; } });
+  ids.forEach(id => { if (!out[id] && old[id]) { out[id] = old[id]; kept++; if (oldPosters[id]) posters[id] = oldPosters[id]; } });
   if (!found) { console.log("Xbox: the store didn't answer, keeping the previous files"); return; }
   saveShards(dir, "xbox", out);
+  fs.writeFileSync(path.join(dataDir, "xbox_posters.json"), JSON.stringify(posters));
+  console.log("Xbox posters: " + Object.keys(posters).length + " games with a portrait cover");
   const n = Object.keys(out).length, w = k => Object.values(out).filter(e => e[k] && e[k].length).length;
   console.log("Xbox media: " + n + " of " + ids.length + " games (" + found + " looked up, " + kept + " kept from before, " + failed +
               " not answered). With screenshots " + w("s") + ", with trailers " + w("v") + ". " + batches.length + " requests.");
