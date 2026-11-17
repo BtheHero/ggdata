@@ -426,7 +426,7 @@ function exportPlayStation_(opts) {
     return;
   }
 
-  const games = [], seen = {};
+  const games = [], seen = Object.create(null);
   let skipped = 0;
   deals.items.forEach((p, i) => {
     if (!p || !p.id || seen[p.id] || !p.price) return;
@@ -503,7 +503,7 @@ function exportPlayStation_(opts) {
     if (o && o.end > now && o.price === g.price) g.saleEnds = new Date(o.end).toISOString();
   });
   // games the store gives no genre: the genres of another edition of the same game (psGameKey_)
-  const genresOf = {};
+  const genresOf = Object.create(null);
   games.forEach(g => { const k = psGameKey_(g.title); if (k && g.genres && g.genres.length && !genresOf[k]) genresOf[k] = g.genres; });
   let borrowed = 0;
   games.forEach(g => { if (!(g.genres && g.genres.length)) { const k = psGameKey_(g.title), x = k && genresOf[k]; if (x) { g.genres = x.slice(); borrowed++; } } });
@@ -780,7 +780,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
 
   // Well-known games on sale, by number of store ratings, one per game (the home page picks 7 at random
   // each day from spotPool and hotPool; the rules are in exportXboxCatalog.gs: SPOT_TOP, hotPool_ and SEE_ALL_RATINGS)
-  const rated = [], seenTitle = {};
+  const rated = [], seenTitle = Object.create(null);
   games.filter(g => star(g.productId) && star(g.productId)[1] > 0 && g.image)
     .sort((a, b) => star(b.productId)[1] - star(a.productId)[1]).forEach(g => {
       // editions with different names ("… Messi Edition" / "… Lamine Yamal Edition") share the game's ratings:
@@ -806,7 +806,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
   const weekAgo = psDay_(now - 7 * 864e5);
   const released = byRelease.map(fromConcept).filter(ok);
   // Trending deals: the most downloaded games (past 30 days) that are on sale, one per game
-  const trendSeen = {}, trendsale = [];
+  const trendSeen = Object.create(null), trendsale = [];
   (trendMore || trending).forEach(c => {
     const g = (c.products || []).map(p => byId[p.id]).find(g => g && g.msrp > g.price);
     if (!g || trendsale.length >= N) return;
@@ -837,7 +837,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
   };
 
   // Posters of the best-selling games on sale, one per game, for the deals bar
-  const seenName = {}, bar = [];
+  const seenName = Object.create(null), bar = [];
   games.forEach(g => {
     const name = norm_(cleanTitle_(g.title).replace(/\b(ps4|ps5)\b/gi, ""));
     if (!g.image || seenName[name] || bar.length >= 14) return;
