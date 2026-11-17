@@ -6,8 +6,9 @@
 //     free        popular free-to-play games, most store ratings first
 //     meta        the best-reviewed games (Metascore), best first, with genres (the Top Metacritic page filters them)
 //     publishers  every publisher with its number of games: editions and add-ons of a game count once
-//     wanted      the most wanted games: IGN's "most wanted" list (WANTED_URL) matched to this store's games; when the
-//                 list can't be read for WANTED_KEEP_DAYS, the games most wishlisted on the site instead
+//     wanted      the most wanted games: IGN's "most wanted" list (WANTED_URL, read every run) matched to this store's
+//                 games, without the ones already released; when the list can't be read for WANTED_KEEP_DAYS, the
+//                 unreleased games most wishlisted on the site instead
 //     psplus      PlayStation only: {added, coming}: games new in the PS Plus catalog (first seen in it within
 //                 PSPLUS_NEW_DAYS), and games the PlayStation Blog announced for PS Plus that aren't in it yet
 //   data/<xbox|ps>_best_<year>.json   {year, updatedAt, games}: the year's 50 best games by Metascore (released that
@@ -181,54 +182,103 @@ const homeFile = plat + "_home.json", home = read(homeFile, null);
 if (home && home.sections) { home.sections.pubsale = pubsale; write(homeFile, home); }
 
 // ---------- most wanted ----------
-// IGN's list: the game names in the page's data, in order (the page is built by Next.js: its data is in __NEXT_DATA__)
+// IGN's list, in order: [{name, alt, rel, url}]. The page is built by Next.js: its data is in __NEXT_DATA__, and the
+// list itself is in props.apolloState, compressed with lz-string (UTF-16). The page holds the list's first 20 games
+// (IGN loads the rest as you scroll), which is the top of the list.
+//   rel: the game's earliest US release date that IGN gives as a day (not an estimate), "" when it has none
+function lzUTF16(input) {   // lz-string's decompressFromUTF16
+  if (!input) return "";
+  const len = input.length, val = i => input.charCodeAt(i) - 32, reset = 16384, dict = [0, 1, 2], f = String.fromCharCode;
+  let enlargeIn = 4, dictSize = 4, numBits = 3, entry = "", result = [], w, c, bits, resb, maxpower, power;
+  const data = { val: val(0), position: reset, index: 1 };
+  const read = n => {
+    bits = 0; maxpower = Math.pow(2, n); power = 1;
+    while (power != maxpower) {
+      resb = data.val & data.position; data.position >>= 1;
+      if (data.position == 0) { data.position = reset; data.val = val(data.index++); }
+      bits |= (resb > 0 ? 1 : 0) * power; power <<= 1;
+    }
+    return bits;
+  };
+  switch (read(2)) { case 0: c = f(read(8)); break; case 1: c = f(read(16)); break; default: return ""; }
+  dict[3] = c; w = c; result.push(c);
+  while (true) {
+    if (data.index > len) return "";
+    switch (c = read(numBits)) {
+      case 0: dict[dictSize++] = f(read(8)); c = dictSize - 1; enlargeIn--; break;
+      case 1: dict[dictSize++] = f(read(16)); c = dictSize - 1; enlargeIn--; break;
+      case 2: return result.join("");
+    }
+    if (enlargeIn == 0) { enlargeIn = Math.pow(2, numBits); numBits++; }
+    if (dict[c]) entry = dict[c]; else if (c === dictSize) entry = w + w.charAt(0); else return null;
+    result.push(entry);
+    dict[dictSize++] = w + entry.charAt(0); enlargeIn--;
+    w = entry;
+    if (enlargeIn == 0) { enlargeIn = Math.pow(2, numBits); numBits++; }
+  }
+}
 async function ignWanted() {
   const r = await fetch(WANTED_URL, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36", "Accept": "text/html" } });
   if (!r.ok) throw new Error("IGN answered " + r.status);
-  const html = await r.text(), names = [];
-  const add = n => { n = String(n || "").replace(/\s+/g, " ").trim(); if (n.length > 1 && n.length < 90 && !names.includes(n)) names.push(n); };
+  const html = await r.text();
   const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-  if (m) {
-    // objects that are games: {__typename: "Object"/"Game"…, metadata: {names: {name}}} or {objectType: "Game", name}
-    const walk = (o, depth) => {
-      if (!o || typeof o !== "object" || depth > 40) return;
-      if (Array.isArray(o)) { o.forEach(x => walk(x, depth + 1)); return; }
-      const type = String(o.__typename || o.objectType || o.type || "");
-      const nm = (o.metadata && o.metadata.names && o.metadata.names.name) || (o.names && o.names.name) || (/game/i.test(type) ? o.name || o.title : null);
-      if (nm && (/game|object/i.test(type) || /\/games\//.test(String(o.url || o.slug || "")))) add(nm);
-      Object.keys(o).forEach(k => walk(o[k], depth + 1));
-    };
-    try { walk(JSON.parse(m[1]), 0); } catch (e) {}
-  }
-  if (names.length < 5) {   // no page data: the list's headings
-    (html.match(/<h[23][^>]*>([^<]{2,90})<\/h[23]>/g) || []).forEach(h => add(h.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/^\d+\.\s*/, "")));
-  }
-  if (names.length < 5) throw new Error("no games found on the page");
-  return names;
+  if (!m) throw new Error("no page data");
+  let st = JSON.parse(m[1]).props || {};
+  st = st.apolloState || (st.pageProps || {}).apolloState;
+  if (typeof st === "string") st = JSON.parse(lzUTF16(st) || "null");
+  if (!st || typeof st !== "object") throw new Error("no list data in the page");
+  const ref = x => x && x.__ref ? st[x.__ref] : x;
+  const list = Object.values(st).find(v => v && v.__typename === "UserList") || {};
+  const conn = Object.keys(list).filter(k => k.startsWith("objects")).map(k => list[k])[0] || {};
+  const items = Object.values(st).filter(v => v && v.__typename === "UserListObject").sort((a, b) => a.position - b.position);
+  const out = [];
+  items.forEach(it => {
+    const o = ref(it.object) || {}, names = (o.metadata && o.metadata.names) || {};
+    if (!names.name || (o.type && o.type !== "Game")) return;
+    const regions = (o.objectRegions || []).map(ref).filter(Boolean), us = regions.filter(x => x.region === "US");
+    const dates = [];
+    (us.length ? us : regions).forEach(x => (x.releases || []).map(ref).forEach(rel => { if (rel && rel.date && !rel.estimatedDate) dates.push(rel.date); }));
+    out.push({
+      name: names.name.replace(/\s+/g, " ").trim(),
+      alt: [].concat(names.alt || [], names.short || []).map(n => String(n).replace(/\s+/g, " ").trim()).filter(Boolean),
+      rel: dates.sort()[0] || "", url: o.url ? "https://www.ign.com" + o.url : ""
+    });
+  });
+  if (out.length < 5) throw new Error("only " + out.length + " games found on the page");
+  const total = conn.pageInfo && conn.pageInfo.total;
+  if (total > out.length) console.log("Most wanted: IGN's page holds the first " + out.length + " of its " + total + " games");
+  return out;
 }
+const today = new Date(NOW).toISOString().slice(0, 10);
 async function wanted() {
   const cacheFile = "ign_wanted.json";
-  let names = null, src = "ign", at = null;
-  try { names = await ignWanted(); write(cacheFile, { updatedAt: new Date().toISOString(), names }); at = new Date().toISOString(); }
+  let ign = null, src = "ign", at = null;
+  try { ign = await ignWanted(); at = new Date().toISOString(); write(cacheFile, { updatedAt: at, games: ign }); }
   catch (e) {
     const old = read(cacheFile, null);
     console.log("Most wanted: IGN's list couldn't be read (" + e.message + ")" + (old ? ", using the copy from " + old.updatedAt : ""));
-    if (old && NOW - Date.parse(old.updatedAt) < WANTED_KEEP_DAYS * DAY) { names = old.names; at = old.updatedAt; }
+    if (old && NOW - Date.parse(old.updatedAt) < WANTED_KEEP_DAYS * DAY) { ign = old.games || (old.names || []).map(name => ({ name, alt: [], rel: "" })); at = old.updatedAt; }
   }
   let list = [];
-  if (names) {
-    // each name, matched to this store's game of the same name (any edition): only games this store sells or lists
-    const byKey = byTitle;
-    names.forEach(n => {
-      const k = editionKey(n), id = byKey[k];
+  if (ign) {
+    // each game, matched to this store's game of the same name (any edition, or one of IGN's other names for it: the
+    // first one that isn't out yet, so an older game of the same name isn't taken for it); a game is left out once
+    // it's out: IGN gives a release date that has come, or the only store games it matches have been released
+    const released = [], isOut = id => relOf(games[id]) && relOf(games[id]) <= NOW;
+    ign.forEach(w => {
+      const found = [w.name].concat(w.alt || []).map(n => byTitle[editionKey(n)]).filter(id => id != null);
+      const id = found.find(id => !isOut(id));
+      if ((w.rel && w.rel <= today) || (!id && found.length)) { released.push(w.name); return; }
       if (id && !list.includes(id)) list.push(id);
     });
-    if (list.length < 5) { console.log("Most wanted: only " + list.length + " of IGN's " + names.length + " games are on this store; using wishlists"); list = []; }
+    if (released.length) console.log("Most wanted: left out " + released.length + " released: " + released.join(", "));
+    if (list.length < 5) { console.log("Most wanted: only " + list.length + " of IGN's " + ign.length + " games are unreleased on this store; using wishlists"); list = []; }
+    else console.log("Most wanted: " + list.length + " of IGN's " + ign.length + " games (" + (ign.length - released.length - list.length) + " not on this store)");
   }
-  if (!list.length) {   // the games most wishlisted on the site
+  if (!list.length) {   // the unreleased games most wishlisted on the site
     src = "wishlist"; at = new Date().toISOString();
     const wc = read("wishcounts.json", {}), n = id => Number(wc[id] || wc[String(id).toUpperCase()] || wc[String(id).toLowerCase()]) || 0;
-    list = one(ids.filter(id => isGame(games[id]) && n(id) > 0 && (PS ? !/^[A-Z0-9]{12}$/i.test(id) : /^[A-Z0-9]{12}$/i.test(id))).sort((a, b) => n(b) - n(a))).slice(0, 50);
+    list = one(ids.filter(id => isGame(games[id]) && n(id) > 0 && !(relOf(games[id]) && relOf(games[id]) <= NOW) && (PS ? !/^[A-Z0-9]{12}$/i.test(id) : /^[A-Z0-9]{12}$/i.test(id))).sort((a, b) => n(b) - n(a))).slice(0, 50);
     return { src, at, games: list.map(id => Object.assign(clean(entry(id, games[id])), { wc: n(id) })) };
   }
   return { src, at, url: WANTED_URL, games: list.slice(0, 100).map(id => clean(entry(id, games[id]))) };
