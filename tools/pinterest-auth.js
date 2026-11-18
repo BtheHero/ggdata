@@ -12,7 +12,7 @@
 const http = require("http"), crypto = require("crypto"), { exec } = require("child_process");
 const ID = process.env.PINTEREST_APP_ID, SECRET = process.env.PINTEREST_APP_SECRET, BOARD = process.argv[2];
 const PORT = 8085, REDIRECT = "http://localhost:" + PORT + "/", API = process.env.PINTEREST_API || "https://api.pinterest.com";
-const SCOPES = "boards:read,pins:read,pins:write,user_accounts:read";
+const SCOPES = "boards:read,boards:write,pins:read,pins:write,user_accounts:read";   // creating a pin needs boards:write too
 if (!ID || !SECRET) { console.log("Set PINTEREST_APP_ID and PINTEREST_APP_SECRET (from the app's page on developers.pinterest.com)."); process.exit(1); }
 
 const state = crypto.randomBytes(12).toString("hex");
