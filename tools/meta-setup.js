@@ -47,7 +47,7 @@ async function post(p, params) {
     const ig = p.instagram_business_account;
     console.log("\n   " + p.name);
     console.log("   FB_PAGE_ID     " + p.id);
-    console.log("   FB_PAGE_TOKEN  " + p.access_token + "   (" + (exp ? "expires " + new Date(exp * 1000).toISOString().slice(0, 10) : "never expires") + ")");
+    console.log("   FB_PAGE_TOKEN  (" + (exp ? "expires " + new Date(exp * 1000).toISOString().slice(0, 10) : "never expires") + "), the whole next line:\n\n" + p.access_token + "\n");
     console.log("   IG_USER_ID     " + (ig ? ig.id + "   (@" + ig.username + ")" : "none: link a professional Instagram account to this Page first"));
   }
 

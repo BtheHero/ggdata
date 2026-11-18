@@ -16,7 +16,12 @@
 //   X          X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET (paid per post: capped by X_DAILY_CAP)
 const fs = require("fs"), path = require("path"), crypto = require("crypto");
 const DATA = path.resolve(process.env.DATA_DIR || "data");
-const env = process.env, DRY = env.SOCIAL_DRY_RUN === "1";
+const env = Object.assign({}, process.env), DRY = env.SOCIAL_DRY_RUN === "1";
+// secrets pasted from a terminal can carry line breaks (a wrapped line), spaces or a note after them: keep just the value
+["FB_PAGE_ID", "FB_PAGE_TOKEN", "IG_USER_ID", "BSKY_HANDLE", "PINTEREST_BOARD_ID", "PINTEREST_APP_ID", "PINTEREST_REFRESH_TOKEN",
+ "PINTEREST_ACCESS_TOKEN", "X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"].forEach(k => {
+  if (env[k]) env[k] = env[k].replace(/\([^)]*\)/g, "").replace(/[\s"']+/g, "");
+});
 const SITE = "https://gamedealtrack.com";
 const GRAPH = "https://graph.facebook.com/" + (env.FB_GRAPH_VERSION || "v23.0");
 const MIN_SCORE = Number(env.SOCIAL_MIN_SCORE || 85);   // deal score (0-100, gs/xbox.gs dealScore_) for a deal to be posted…
