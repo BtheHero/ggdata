@@ -271,11 +271,13 @@ function xAddOnRelations_() {
 // publisher's id (Properties.PublisherId). Every game's is kept in xbox_pubids.json: {p: {product id: [publisher id, publisher
 // name, checked (ms)]}}; new games are looked up on every run, known ones again after XPUB_RECHECK_DAYS, XPUB_MAX per run.
 // The game pages carry it (pb) and the lists job groups publishers by it.
-const XPUB_MAX = 6000, XPUB_RECHECK_DAYS = 45;
+// Also each game's developer (the studio: DeveloperName), for the lists' "Upcoming games from acclaimed studios"
+// (jobs/lists.js). xbox_pubids.json {p: {id: [publisher id, publisher name, checked ms, developer name]}}.
+const XPUB_MAX = 20000, XPUB_RECHECK_DAYS = 45;
 function xPublisherIds_() {
   const t0 = Date.now(), file = psReadJson_("XPUBIDS_FILE_ID", { p: {} }), known = file.p || {};
   const ids = (psReadJson_("CATALOG_FILE_ID", { games: [] }).games || []).map(r => String(r[0] || "").toUpperCase()).filter(Boolean);
-  const due = ids.filter(id => !known[id] || Date.now() - known[id][2] > XPUB_RECHECK_DAYS * 864e5)
+  const due = ids.filter(id => !known[id] || known[id][3] === undefined || Date.now() - known[id][2] > XPUB_RECHECK_DAYS * 864e5)   // (older entries: no developer yet)
     .sort((a, b) => (known[a] ? 1 : 0) - (known[b] ? 1 : 0)).slice(0, XPUB_MAX);
   let withId = 0, asked = 0;
   for (let i = 0; i < due.length && Date.now() - t0 < 10 * 60 * 1000; i += 160) {
@@ -293,7 +295,7 @@ function xPublisherIds_() {
       ((d && d.Products) || []).forEach(p => {
         const id = String(p.ProductId || "").toUpperCase(), pr = p.Properties || {}, lp = (p.LocalizedProperties && p.LocalizedProperties[0]) || {};
         const pub = String(pr.PublisherId || pr.PublisherID || "").trim();
-        known[id] = [pub, lp.PublisherName || "", Date.now()];
+        known[id] = [pub, lp.PublisherName || "", Date.now(), String(lp.DeveloperName || "").trim()];
         if (pub) withId++;
       });
     });
