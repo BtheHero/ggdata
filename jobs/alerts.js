@@ -2,7 +2,7 @@
 //
 // Who: the site's accounts with alerts on (POST {action: "alert_subs", key: ALERT_KEY} to SOURCE_API): their wishlist,
 // target prices ({game id: price}), email (when email alerts are on) and push subscriptions.
-// What: a game on the wishlist that's on sale in the US store, or any game that reached its price alert: at or below a
+// What: a game on the wishlist that's on sale in the person's store (the region picked on the site, u.region), or any game that reached its price alert: at or below a
 // price in a region's store and currency, or at least N% off there ({game id: US price (older alerts), {p, c, r} or {pct, r}},
 // lib/accounts.js fb_target in the site), from that region's price file (<xbox|ps>_prices_<region>.json).
 // Each person gets at most one email and one notification a run, listing everything new. A game is only mentioned again
@@ -113,7 +113,7 @@ function emailHtml(u, items) {
     <p style="margin:0 0 8px">${items.length === 1 ? "A game you're watching has a new price:" : "Games you're watching have new prices:"}</p>
     <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">${rows}</table>
     <p style="margin:18px 0 0"><a href="${SITE}/deals?wl=1" style="color:#0d8a5f">See your wishlist</a></p></div>
-    <p style="color:#777;font-size:12px;text-align:center;margin:14px 0 0">Prices are the store's (your alert's region for price alerts, else the US) and can change. You get these because you turned on alerts on GameDealTrack.<br>
+    <p style="color:#777;font-size:12px;text-align:center;margin:14px 0 0">Prices are your region's store's (as picked on the site) and can change. You get these because you turned on alerts on GameDealTrack.<br>
     <a href="${unsub}" style="color:#777">Unsubscribe from alert emails</a></p></div></body></html>`;
 }
 const subjectOf = items => {
@@ -139,6 +139,7 @@ async function main() {
   const gone = [], goneFcm = [];
   for (const u of feed.users || []) {
     const mine = sent[u.uid] || {}, wish = new Set(u.wish || []), targets = u.targets || {};
+    const region = /^[A-Z]{2}$/.test(String(u.region || "")) ? u.region : "US";
     const items = [];
     new Set([...wish, ...Object.keys(targets)]).forEach(id => {
       const us = info[id];
@@ -146,10 +147,13 @@ async function main() {
       // a price alert: the game in its region's store (no price there: nothing to tell yet)
       const target = tNorm(targets[id]), rx = target ? inRegion(id, us, target.r) : null;
       const hit = !!(rx && rx.price > 0 && (target.pct ? pctOf(rx) >= target.pct : rx.currency === target.c && target.p > 0 && rx.price <= target.p + 0.001));
-      const x = hit ? rx : us;
+      // a wishlisted game: on sale in the store of the region the person picked on the site (u.region); the US store's
+      // price when that region's file doesn't have the game
+      const wx = wish.has(id) ? inRegion(id, us, region) || us : null;
+      const x = hit ? rx : wx || us;
       if (!(x.price > 0)) return;
-      const onSale = x.msrp > x.price + 0.009;
-      if (!(hit || (onSale && wish.has(id)))) { delete mine[id]; return; }   // nothing to tell: told again at the next sale
+      const onSale = !!wx && wx.price > 0 && wx.msrp > wx.price + 0.009;
+      if (!(hit || onSale)) { delete mine[id]; return; }   // nothing to tell: told again at the next sale
       if (mine[id] && (mine[id].c || "USD") === (x.currency || "USD") && x.price >= mine[id].p - 0.009) return;   // already told at this price or lower
       items.push({ id, x, kind: hit ? "target" : "sale", target });
     });
