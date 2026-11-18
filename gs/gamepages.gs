@@ -59,9 +59,16 @@ function attachAddOns_(games, extra, ps) {
     (fam[name] = fam[name] || []).push(id);
     famOf[id] = name;
   });
+  // the standard edition: the one named just like the game (or "Standard Edition"), else the least complete edition;
+  // the console listing before the Windows one. (A bundle, "Supreme Edition" or "Full Alert Bundle", is never the game
+  // when the game itself is there, even when it has more ratings.)
+  const platOnly = t => String(t || "").replace(/[™®©]/g, "").replace(/\s*[([](pc|windows|xbox[^)\]]*|ps[45][^)\]]*)[)\]]\s*$/i, "")
+    .replace(/\b(for )?(xbox one|xbox series x\|s|xbox series x|windows( 10)?|pc|ps4|ps5)\b/gi, " ");
+  const stdRank = (id, n) => { const t = games[id].t; return addOnName_(platOnly(t)) === n || /\bstandard\b/i.test(t) ? 0 : 1 + edRank_(t); };
+  const winRank = id => /\b(windows|pc)\b/i.test(games[id].t) ? 1 : 0;
   const base = Object.create(null);
   Object.keys(fam).forEach(n => {
-    base[n] = fam[n].slice().sort((a, b) => edRank_(games[a].t) - edRank_(games[b].t) || rc(b) - rc(a) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
+    base[n] = fam[n].slice().sort((a, b) => stdRank(a, n) - stdRank(b, n) || winRank(a) - winRank(b) || rc(b) - rc(a) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
     byName[n] = base[n];
   });
   // the game (its name) an add-on belongs to
@@ -87,9 +94,9 @@ function attachAddOns_(games, extra, ps) {
     const inBundle = new Set(((r && r[1]) || []).map(page).filter(Boolean));
     const up = /\bupgrade\b/i.test(title), to = edRank_(title.replace(/^.*?\bupgrade\b/i, "") || title) || edRank_(title);
     eds.forEach(e => {
-      if (up && (to ? edRank_(games[e].t) >= to : e !== base[n])) return;   // an upgrade: the editions below its target only
+      if (up && (to ? stdRank(e, n) > 0 && edRank_(games[e].t) >= to || /\bupgrade\b/i.test(games[e].t) : e !== base[n])) return;   // an upgrade: the editions below its target only
       (lists[e] = lists[e] || []).push(row);
-      if (inBundle.has(e)) (incl[e] = incl[e] || []).push(id);
+      if (inBundle.has(e) && !up) (incl[e] = incl[e] || []).push(id);   // (an upgrade isn't "included": the edition is what it upgrades to)
     });
     return base[n];
   };
@@ -116,7 +123,7 @@ function attachAddOns_(games, extra, ps) {
   // the editions (bundles) that include an add-on, by the store's own add-on relations: its page says "Included in"
   Object.keys(rel).forEach(k => {
     const id = games[k] ? k : null, g = id && games[id];
-    if (!g || !g.kd || g.a) return;
+    if (!g || !g.kd || g.a || /\bupgrade\b/i.test(g.t || "")) return;   // (an upgrade isn't included in the edition it upgrades to)
     const inb = ((rel[k] && rel[k][1]) || []).map(page).filter(x => x && x !== id && games[x] && !games[x].kd);
     if (inb.length) g.inb = Array.from(new Set(inb)).slice(0, 12);
   });
@@ -559,14 +566,16 @@ function gamePagesFor_(pre) {
     Object.keys(bb).forEach(bid => {
       const g = games[bid], items = bb[bid][0] || [];
       if (!g || g.a || items.length < 2) return;
-      g.inc = items.map(x => {
+      // (an "… Edition Upgrade" in an edition's contents is how the store builds that edition, not something it adds)
+      const isUp = x => /\bupgrade\b/i.test((pg(x) && games[pg(x)].t) || (bn[x] || [])[0] || "");
+      g.inc = items.filter(x => !isUp(x)).map(x => {
         const p = pg(x), nm = bn[x] || [];
         const t = (p && games[p].t) || nm[0];
         return t ? [p || x, t, (p && (games[p].q || games[p].i)) || nm[2] || "", p ? 1 : 0, nm[1] || ""] : null;
       }).filter(Boolean).slice(0, 40);
       if (g.inc.length < 2) { delete g.inc; return; }
       n++;
-      items.forEach(x => { const p = pg(x); if (p && p !== bid && games[p].kd) (inb[p] = inb[p] || []).push(bid); });
+      items.forEach(x => { const p = pg(x); if (p && p !== bid && games[p].kd && !isUp(x)) (inb[p] = inb[p] || []).push(bid); });
     });
     Object.keys(inb).forEach(id => { games[id].inb = Array.from(new Set((games[id].inb || []).concat(inb[id]))).slice(0, 12); });
     Object.keys(games).forEach(id => {

@@ -12,6 +12,7 @@
 //                 PSPLUS_NEW_DAYS), and games the PlayStation Blog announced for PS Plus that aren't in it yet
 //   data/<xbox|ps>_best_<year>.json   {year, updatedAt, games}: the year's 50 best games by Metascore (released that
 //                 year, one per game). Updated through the year and in January (late reviews); then it's kept as it is.
+//   data/<xbox|ps>_xref.json   {g: {game: [Metascore, first release]}}: read by the other store's lists (best of the year)
 //   <xbox|ps>_home.json sections.pubsale: a row for each big publisher (PUB_ROWS) with more than PUB_MIN games on sale;
 //                 sections.wanted: the most wanted games (the same as the lists' wanted), for the home page's row.
 //
@@ -109,15 +110,42 @@ const free = mains.filter(id => { const g = games[id]; return !g.np && !(Number(
 const meta = mains.filter(id => mcOf(games[id]) > 0 && relOf(games[id]) <= NOW).sort((a, b) => mcOf(games[b]) - mcOf(games[a]) || rc(b) - rc(a))
   .slice(0, META_N).map(id => clean(entry(id, games[id])));
 
+// ---------- the same games in the other store ----------
+// A game sold on both stores should be in both years' lists, with the same Metascore. But each store has its own release
+// dates (a game first out on PlayStation in 2025 may only reach Xbox in 2026; an old game re-listed for PS5 gets a new
+// date) and the Metascore isn't always matched in both. So each store's lists job saves, for every game (its name without
+// the edition, editionKey), its Metascore and first release date (data/<plat>_xref.json {g: {key: [Metascore, first
+// release ms]}}), and the other store's job reads it: a game counts in the year of its first release in either store,
+// and takes the other store's Metascore when it has none.
+const OTHER = PS ? "xbox" : "ps";
+const firstRel = Object.create(null), xmc = Object.create(null);   // game key -> first release (any edition), best Metascore
+ids.forEach(id => {
+  const g = games[id];
+  if (!isGame(g)) return;
+  const k = gid(id);
+  if (relOf(g)) firstRel[k] = Math.min(firstRel[k] || Infinity, relOf(g));
+  if (mcOf(g)) xmc[k] = Math.max(xmc[k] || 0, mcOf(g));
+});
+const xrefOut = {};
+mains.forEach(id => { const k = editionKey(games[id].t), q = gid(id); if (k && (xmc[q] || firstRel[q])) xrefOut[k] = [xmc[q] || 0, firstRel[q] || 0]; });
+write(plat + "_xref.json", { updatedAt: new Date().toISOString(), plat, g: xrefOut });
+const other = Object.create(null);
+const ox = read(OTHER + "_xref.json", null);
+if (ox && ox.g) Object.keys(ox.g).forEach(k => { other[k] = ox.g[k]; });
+else (read(OTHER + "_lists.json", {}).meta || []).forEach(e => { const k = editionKey(e.title); if (k) other[k] = [Number(e.mc) || 0, Date.parse(e.released) || 0]; });   // (before the other store's first xref file)
+const otherOf = id => other[editionKey(games[id].t)] || null;
+console.log("Lists: " + Object.keys(other).length + " games from the " + OTHER + " store to compare with");
+
 // ---------- best of the year (kept for every year) ----------
 const year = new Date(NOW).getUTCFullYear();
 function bestOf(y) {
   const from = Date.UTC(y, 0, 1), to = Date.UTC(y + 1, 0, 1);
-  // a game counts in the year of its first release (its earliest edition)
-  const first = Object.create(null);
-  ids.forEach(id => { const g = games[id]; if (!isGame(g) || !relOf(g)) return; const k = gid(id); first[k] = Math.min(first[k] || Infinity, relOf(g)); });
-  return mains.filter(id => { const t = first[gid(id)]; return mcOf(games[id]) > 0 && t >= from && t < to && t <= NOW; })
-    .sort((a, b) => mcOf(games[b]) - mcOf(games[a]) || rc(b) - rc(a)).slice(0, BEST_N).map(id => clean(entry(id, games[id])));
+  // a game counts in the year of its first release (its earliest edition), in this store or the other one (only to make
+  // it earlier: a game with no date here isn't given the other store's)
+  const first = id => { const t = firstRel[gid(id)], o = otherOf(id); return t && o && o[1] > 0 ? Math.min(t, o[1]) : t; };
+  const mc = id => mcOf(games[id]) || (otherOf(id) || [0])[0];
+  return mains.filter(id => { const t = first(id); return mc(id) > 0 && t >= from && t < to && t <= NOW; })
+    .sort((a, b) => mc(b) - mc(a) || rc(b) - rc(a)).slice(0, BEST_N).map(id => clean(Object.assign(entry(id, games[id]), { mc: mc(id) })));
 }
 const years = [year].concat(new Date(NOW).getUTCMonth() === 0 ? [year - 1] : []);   // last year's list until January ends
 years.forEach(y => {
