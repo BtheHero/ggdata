@@ -118,7 +118,7 @@ function weeklyPosts() {
     const top = (week.games || []).filter(g => !(g.ends && Date.parse(g.ends) <= Date.now())).slice(0, 5);
     if (top.length < 3) continue;
     posts.push({ key: plat, week: wk.week, title: "This week's best " + PLAT[plat].name + " deals",
-      head: "🎮 This week's best " + PLAT[plat].name + " deals",
+      head: "🎮 This week's best " + PLAT[plat].name + " deals\n",   // a blank line before the list
       line: top.map((g, i) => (i + 1) + ". " + g.title + " " + money(g.price, g.currency) + " (-" + pctOff(g) + "%)").join("\n"),
       url: SITE + "/best-deals/" + plat, image: fullImg(top[0].sq || top[0].image), hero: heroOf(plat, top[0].id), tags: PLAT[plat].tags });
   }
