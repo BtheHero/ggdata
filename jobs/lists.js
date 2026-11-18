@@ -5,12 +5,13 @@
 //     upcoming    every game with a release date still to come, soonest first (the release schedule)
 //     free        popular free-to-play games, most store ratings first
 //     meta        the best-reviewed games (Metascore), best first, with genres (the Top Metacritic page filters them)
-//     publishers  every publisher with its number of games: editions and add-ons of a game count once
+//     publishers  every publisher with its number of games (editions and add-ons of a game count once), most popular
+//                 first: the store ratings of all its games together
 //     acclaimed   upcoming games from acclaimed studios (Xbox: developers) / publishers (PlayStation): {by, studios, games}
 //     psplus      PlayStation only: {added, coming}: games new in the PS Plus catalog (first seen in it within
 //                 PSPLUS_NEW_DAYS), and games the PlayStation Blog announced for PS Plus that aren't in it yet
-//   data/<xbox|ps>_best_<year>.json   {year, updatedAt, games}: the year's 50 best games by Metascore (released that
-//                 year, one per game). Updated through the year and in January (late reviews); then it's kept as it is.
+//   data/<xbox|ps>_best_<year>.json   {year, updatedAt, games}: the year's 50 best games by Metascore (released on this
+//                 store that year, one per game; the other store's Metascore when this one has none). Updated through the year and in January (late reviews); then it's kept as it is.
 //   data/<xbox|ps>_xref.json   {g: {game: [Metascore, first release]}}: read by the other store's lists (best of the year)
 //   <xbox|ps>_home.json sections.pubsale: a row for each big publisher (PUB_ROWS) with more than PUB_MIN games on sale;
 //                 sections.acclaimed: the acclaimed studios' upcoming games (the same as the lists'), for the home page's row.
@@ -109,12 +110,11 @@ const meta = mains.filter(id => mcOf(games[id]) > 0 && relOf(games[id]) <= NOW).
   .slice(0, META_N).map(id => clean(entry(id, games[id])));
 
 // ---------- the same games in the other store ----------
-// A game sold on both stores should be in both years' lists, with the same Metascore. But each store has its own release
-// dates (a game first out on PlayStation in 2025 may only reach Xbox in 2026; an old game re-listed for PS5 gets a new
-// date) and the Metascore isn't always matched in both. So each store's lists job saves, for every game (its name without
+// The Metascore isn't always matched in both stores. So each store's lists job saves, for every game (its name without
 // the edition, editionKey), its Metascore and first release date (data/<plat>_xref.json {g: {key: [Metascore, first
-// release ms]}}), and the other store's job reads it: a game counts in the year of its first release in either store,
-// and takes the other store's Metascore when it has none.
+// release ms]}}), and the other store's job reads it: a game without a Metascore on this store takes the other store's.
+// (The year a game counts in is its first release on this store: a game first out on PlayStation in 2025 that reached
+// Xbox in 2026 is in Xbox's 2026 list.)
 const OTHER = PS ? "xbox" : "ps";
 const firstRel = Object.create(null), xmc = Object.create(null);   // game key -> first release (any edition), best Metascore
 ids.forEach(id => {
@@ -138,10 +138,11 @@ console.log("Lists: " + Object.keys(other).length + " games from the " + OTHER +
 const year = new Date(NOW).getUTCFullYear();
 function bestOf(y) {
   const from = Date.UTC(y, 0, 1), to = Date.UTC(y + 1, 0, 1);
-  // a game counts in the year of its first release (its earliest edition), in this store or the other one (only to make
-  // it earlier: a game with no date here isn't given the other store's)
-  const first = id => { const t = firstRel[gid(id)], o = otherOf(id); return t && o && o[1] > 0 ? Math.min(t, o[1]) : t; };
-  const mc = id => mcOf(games[id]) || (otherOf(id) || [0])[0];
+  // a game counts in the year it was first released on this store (its earliest edition here): a game out on the other
+  // store years earlier still counts the year it reached this one, and one this store hasn't released yet doesn't count
+  const first = id => firstRel[gid(id)];
+  // its Metascore on this store, else the other store's for the same game (the game itself has to be on this store)
+  const mc = id => mcOf(games[id]) || xmc[gid(id)] || (otherOf(id) || [0])[0];
   return mains.filter(id => { const t = first(id); return mc(id) > 0 && t >= from && t < to && t <= NOW; })
     .sort((a, b) => mc(b) - mc(a) || rc(b) - rc(a)).slice(0, BEST_N).map(id => clean(Object.assign(entry(id, games[id]), { mc: mc(id) })));
 }
@@ -154,7 +155,8 @@ years.forEach(y => {
 // every year with a list (the page's year picker)
 const bestYears = fs.readdirSync(DATA).map(f => (f.match(new RegExp("^" + plat + "_best_(\\d{4})\\.json$")) || [])[1]).filter(Boolean).map(Number).sort((a, b) => b - a);
 
-// ---------- publishers: unique games each (editions and add-ons once) ----------
+// ---------- publishers: unique games each (editions and add-ons once), most popular first ----------
+// popularity: how many store ratings its games have in all (the stores' measure of how many people play them)
 const pubs = Object.create(null);
 mains.forEach(id => {
   const g = games[id], k = pk(g);
@@ -166,7 +168,7 @@ mains.forEach(id => {
   p.ratings += rc(id);
   p.top.push(id);
 });
-const publishers = Object.keys(pubs).map(k => pubs[k]).filter(p => p.n >= 2).sort((a, b) => b.n - a.n || b.ratings - a.ratings).slice(0, 1500)
+const publishers = Object.keys(pubs).map(k => pubs[k]).filter(p => p.n >= 2).sort((a, b) => b.ratings - a.ratings || b.n - a.n).slice(0, 1500)
   .map((p, i) => {
     const name = Object.keys(p.names).sort((a, b) => p.names[b] - p.names[a] || a.length - b.length)[0];
     const top = i < 300 ? p.top.sort((a, b) => rc(b) - rc(a)).slice(0, 4).map(id => art(games[id].q || games[id].i)).filter(Boolean) : [];
