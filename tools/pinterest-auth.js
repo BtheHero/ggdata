@@ -15,6 +15,7 @@ const PORT = 8085, REDIRECT = "http://localhost:" + PORT + "/", API = process.en
 const SCOPES = "boards:read,boards:write,pins:read,pins:write,user_accounts:read";   // creating a pin needs boards:write too
 if (!ID || !SECRET) { console.log("Set PINTEREST_APP_ID and PINTEREST_APP_SECRET (from the app's page on developers.pinterest.com)."); process.exit(1); }
 
+if (BOARD && !/^\d+$/.test(BOARD)) { console.log("\"" + BOARD + "\" isn't a board number. Run it with no word after it, or with your board's number (it prints them).\nThe test pin in the sandbox is: node pinterest-token.js pin"); process.exit(1); }
 const state = crypto.randomBytes(12).toString("hex");
 const authUrl = "https://www.pinterest.com/oauth/?" + new URLSearchParams({ client_id: ID, redirect_uri: REDIRECT, response_type: "code", scope: SCOPES, state });
 const basic = "Basic " + Buffer.from(ID + ":" + SECRET).toString("base64");
