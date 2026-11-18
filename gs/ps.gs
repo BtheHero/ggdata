@@ -18,7 +18,9 @@ const PS_GQL = "https://web.np.playstation.com/api/graphql/v1/op";
 const PS_HASH = {
   categoryGridRetrieve: "88c0b9a1273c6d320c51cd73e390924e21ae28bf09f01cde8b84b1034b16cd03",
   productRetrieveForCtasWithPrice: "8532da7eda369efdad054ca8f885394a2d0c22d03c5259a422ae2bb3b98c5c99",
-  metGetProductById: "a128042177bd93dd831164103d53b73ef790d56f51dae647064cb8f9d9fc9d1a"
+  metGetProductById: "a128042177bd93dd831164103d53b73ef790d56f51dae647064cb8f9d9fc9d1a",
+  // a game (concept) and every edition of it sold in the store of the locale asked, with their prices (run.js fillPsRegionGaps)
+  metGetPricingDataByConceptId: "abcb311ea830e679fe2b697a27f755764535d825b24510ab1239a4ca3092bd09"
 };
 const PS_ALL_DEALS = "3f772501-f6f8-49b7-abac-874a88ca4897";
 const PS_ALL_GAMES = "28c9c2b2-cecc-415c-9a08-482a605cb104";
@@ -199,6 +201,9 @@ function psWide_(media) {
 // the better popularity rank. PS_DUPS {left-out product id: kept product id} goes in ps_sales.json (dups), so the
 // left-out product's page sends visitors to the kept one (gs/gamepages.gs).
 let PS_DUPS = {};
+// Games, not add-ons: the store's kind of product, in English (the US store's localizedStoreDisplayClassification) or
+// as its code (storeDisplayClassification, every store). The home page's count of deals counts games only.
+const psIsGame_ = kind => /^(full game|game bundle|premium edition|bundle|full_game|game_bundle|premium_edition)$/i.test(String(kind || "").trim());
 const psVersionKey_ = g => String(g.title || "").toLowerCase().replace(/[™®©]/g, "").replace(/\s*[-–(\[]?\s*\b(ps4|ps5)(\s*(&|and|\/)\s*(ps4|ps5))?\b\s*(version|edition)?[)\]]?\s*$/, "")
   .replace(/\s+/g, " ").trim() + "|" + String(g.kind || "").toLowerCase();
 function psMergeVersions_(games) {
@@ -846,7 +851,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
   });
 
   const file = saveJsonToDrive_(
-    { updatedAt: new Date().toISOString(), platform: "ps", dealsCount: games.length, bar: bar, gp: null, sections: sections },
+    { updatedAt: new Date().toISOString(), platform: "ps", dealsCount: games.filter(g => psIsGame_(g.kind)).length, bar: bar, gp: null, sections: sections },
     "ps_home.json", "PS_HOME_FILE_ID");
   console.log("PlayStation home saved: " + Object.keys(sections).filter(k => Array.isArray(sections[k])).map(k => k + "=" + sections[k].length).join(", ") + " " + file.getUrl());
 }
@@ -906,6 +911,7 @@ function testPlayStation() {
 //   prices: { key: [price, msrp, rank, discount %, region product id or concept id] }   key = psDealKey_ or concept id
 //   extra:  games on sale in that region but not in the US sale list
 // Concepts from the region's top lists are included too, so the home page rows can be re-priced.
+let PS_NAMES = {};   // a region's games by name (norm_ of cleanTitle_) -> concept id, best-selling first
 function exportPsRegion_(code, startTime) {
   const locale = PS_REGIONS[code];
   const deals = psGrid_(PS_ALL_DEALS, { name: "sales30", isAscending: false }, 20000, locale);
@@ -932,12 +938,15 @@ function exportPsRegion_(code, startTime) {
   // every game (concept) of the region's store, with its price: game pages, the full game list and the comparisons.
   // Concept ids are the same in every region.
   const picks = [];   // games priced by an edition in the US (PS_EPICK): their editions here, looked up below
+  PS_NAMES = {};
   [["sales30", 15000]].forEach(([sort, n]) => {
     psGrid_(PS_ALL_GAMES, { name: sort, isAscending: false }, n, locale).items.forEach(c => {
       if (!c || !c.id || !c.price || prices[String(c.id)]) return;
-      const price = psPrice_(c.price.discountedPrice), base = psPrice_(c.price.basePrice);
+      const base = psPrice_(c.price.basePrice), price = psPrice_(c.price.discountedPrice) === null ? base : psPrice_(c.price.discountedPrice);   // ("Included" with PS Plus: its regular price)
       if (price === null) return;
       prices[String(c.id)] = [price, base === null ? price : base, 1e6, 0, String(c.id)];
+      const nk = norm_(cleanTitle_(c.name || ""));
+      if (nk && !PS_NAMES[nk]) PS_NAMES[nk] = String(c.id);
       if (PS_EPICK[String(c.id)] && psConceptIds_(c).length > 1) picks.push(c);
     });
   });
@@ -955,6 +964,16 @@ function exportPsRegion_(code, startTime) {
     });
     Logger.log("PlayStation " + code + ": " + picks.length + " games priced by edition (" + fixed + " changed, " + Object.keys(found).length + " editions looked up)");
   }
+  // Older games can have another concept id in this store than in the US one (Call of Duty: Modern Warfare Remastered):
+  // the US full game list's games this store has under another id, matched by name, get that game's price
+  let renamed = 0;
+  (psReadJson_("PS_CATALOG_FILE_ID", { games: [] }).games || []).forEach(r => {
+    const id = String(r[0] || ""), k = PS_NAMES[norm_(cleanTitle_(r[1] || ""))];
+    if (!id || prices[id] || !k || k === id || !prices[k]) return;
+    prices[id] = prices[k].slice();   // (its store page: this store's concept, prices[id][4])
+    renamed++;
+  });
+  if (renamed) Logger.log("PlayStation " + code + ": " + renamed + " games found under another id");
 
   // currency: asked once from the first game's price details
   let currency = "";
@@ -974,8 +993,10 @@ function exportPsRegion_(code, startTime) {
              platforms: p.platforms || [], url: storeBase + p.id, subs: psSubs_(tiers), tiers: tiers, genres: [] };
   });
 
+  // the home page's count of deals in this store: games only, PS4 and PS5 versions of the same game once (as in the US)
+  const dealsCount = new Set(sale.filter(p => psIsGame_(p.storeDisplayClassification)).map(p => psVersionKey_({ title: p.name, kind: p.storeDisplayClassification }))).size;
   const file = saveJsonToDrive_({ updatedAt: new Date().toISOString(), platform: "ps", region: code, locale: locale,
-                                  currency: currency, prices: prices, extra: extra },
+                                  currency: currency, dealsCount: dealsCount, prices: prices, extra: extra },
                                 "ps_prices_" + code + ".json", "PS_PRICES_" + code + "_FILE_ID");
   Logger.log("PlayStation " + code + ": " + sale.length + " on sale (" + extra.length + " not on sale in the US), currency " +
              currency + ", " + Math.round((Date.now() - startTime) / 1000) + " s " + file.getUrl());
