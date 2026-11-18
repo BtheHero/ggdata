@@ -1,20 +1,19 @@
 // The site's list pages, after each Xbox and PlayStation run (after the game pages, which it reads).
 //
-//   data/<xbox|ps>_lists.json        {updatedAt, plat, year, recent, upcoming, free, meta, publishers, wanted, psplus}
+//   data/<xbox|ps>_lists.json        {updatedAt, plat, year, recent, upcoming, free, meta, publishers, acclaimed, psplus}
 //     recent      games released in the last RECENT_DAYS days, newest first
 //     upcoming    every game with a release date still to come, soonest first (the release schedule)
 //     free        popular free-to-play games, most store ratings first
 //     meta        the best-reviewed games (Metascore), best first, with genres (the Top Metacritic page filters them)
 //     publishers  every publisher with its number of games: editions and add-ons of a game count once
-//     wanted      the most wanted games: IGN's "most wanted" list (WANTED_URL) matched to this store's games; when the
-//                 list can't be read for WANTED_KEEP_DAYS, the games most wishlisted on the site instead
+//     acclaimed   upcoming games from acclaimed studios (Xbox: developers) / publishers (PlayStation): {by, studios, games}
 //     psplus      PlayStation only: {added, coming}: games new in the PS Plus catalog (first seen in it within
 //                 PSPLUS_NEW_DAYS), and games the PlayStation Blog announced for PS Plus that aren't in it yet
 //   data/<xbox|ps>_best_<year>.json   {year, updatedAt, games}: the year's 50 best games by Metascore (released that
 //                 year, one per game). Updated through the year and in January (late reviews); then it's kept as it is.
 //   data/<xbox|ps>_xref.json   {g: {game: [Metascore, first release]}}: read by the other store's lists (best of the year)
 //   <xbox|ps>_home.json sections.pubsale: a row for each big publisher (PUB_ROWS) with more than PUB_MIN games on sale;
-//                 sections.wanted: the most wanted games (the same as the lists' wanted), for the home page's row.
+//                 sections.acclaimed: the acclaimed studios' upcoming games (the same as the lists'), for the home page's row.
 //
 // node jobs/lists.js xbox|ps
 const fs = require("fs"), path = require("path");
@@ -24,8 +23,6 @@ const read = (f, d) => { try { return JSON.parse(fs.readFileSync(path.join(DATA,
 const write = (f, d) => { fs.mkdirSync(path.dirname(path.join(DATA, f)), { recursive: true }); fs.writeFileSync(path.join(DATA, f), JSON.stringify(d)); };
 const DAY = 864e5, NOW = Date.now();
 const RECENT_DAYS = 14, BEST_N = 50, META_N = 1200, FREE_N = 80, UPCOMING_N = 600, PUB_MIN = 14, PSPLUS_NEW_DAYS = 45;
-const WANTED_URL = "https://www.ign.com/playlist/igneditorial/lists/most-wanted-games-2024-and-beyond";
-const WANTED_KEEP_DAYS = 14;   // a list read from IGN is used this long when IGN can't be read
 const SHARDS = 64;
 
 // ---------- the games (the game pages' files) ----------
@@ -56,10 +53,11 @@ const clean = e => { Object.keys(e).forEach(k => { if (e[k] === undefined || e[k
 
 // One key per game (every edition and platform version of it), as the game pages' "Other editions" do
 const editionKey = t => {
-  let s = String(t || "").replace(/[™®©]/g, "").replace(/\s*[([](pc|windows|xbox[^)\]]*|ps[45][^)\]]*)[)\]]\s*$/i, "");
+  let s = String(t || "").replace(/[™®©]/g, "").replace(/\s*[([](pc|windows|xbox[^)\]]*|ps[45][^)\]]*|pre-?order)[)\]]\s*$/i, "").replace(/\s*[-–:]?\s*pre-?order\s*$/i, "");
   const parts = s.split(/\s*(?:[:–—|]|\s-\s)\s*/);   // only the part after the last separator can name the edition
-  if (parts.length > 1 && /\b(edition|bundle|version)\b/i.test(parts[parts.length - 1])) s = parts.slice(0, -1).join(" ");
-  s = s.replace(/\s*((standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|collector'?s|anniversary|special|enhanced|legendary|launch|cross-gen|game of the year|goty|platinum|limited|super|\d+(st|nd|rd|th))\s+)+(edition|bundle)\b.*$/i, "");
+  // (a short last part only, "Vault Edition" / "Cross-Gen Bundle": "Legacy of Atlantis Deluxe Edition" keeps its subtitle)
+  if (parts.length > 1 && /\b(edition|bundle|version)\b/i.test(parts[parts.length - 1]) && parts[parts.length - 1].split(/\s+/).length <= 3) s = parts.slice(0, -1).join(" ");
+  s = s.replace(/\s*((standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|collector'?s|anniversary|special|enhanced|legendary|launch|cross-gen|game of the year|goty|platinum|limited|super|plus|\d+(st|nd|rd|th))\s+)+(edition|bundle|version)\b.*$/i, "");
   return s.toLowerCase().replace(/\b(xbox one|xbox series x\|s|xbox series x|for xbox series x\|s|windows( 10)?|for pc|pc|ps4|ps5)\b/g, " ")
     .replace(/\s*(game of the year|goty)\b.*$/, "").replace(/\s*[\(\[].*?[\)\]]/g, "").replace(/[^a-z0-9]+/g, "");
 };
@@ -210,63 +208,53 @@ pubsale.sort((a, b) => b.games.reduce((s, g) => s + (g.rc || 0), 0) - a.games.re
 const homeFile = plat + "_home.json", home = read(homeFile, null);
 if (home && home.sections) { home.sections.pubsale = pubsale; write(homeFile, home); }
 
-// ---------- most wanted ----------
-// IGN's list: the game names in the page's data, in order (the page is built by Next.js: its data is in __NEXT_DATA__)
-async function ignWanted() {
-  const r = await fetch(WANTED_URL, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36", "Accept": "text/html" } });
-  if (!r.ok) throw new Error("IGN answered " + r.status);
-  const html = await r.text(), names = [];
-  const add = n => { n = String(n || "").replace(/\s+/g, " ").trim(); if (n.length > 1 && n.length < 90 && !names.includes(n)) names.push(n); };
-  const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-  if (m) {
-    // objects that are games: {__typename: "Object"/"Game"…, metadata: {names: {name}}} or {objectType: "Game", name}
-    const walk = (o, depth) => {
-      if (!o || typeof o !== "object" || depth > 40) return;
-      if (Array.isArray(o)) { o.forEach(x => walk(x, depth + 1)); return; }
-      const type = String(o.__typename || o.objectType || o.type || "");
-      const nm = (o.metadata && o.metadata.names && o.metadata.names.name) || (o.names && o.names.name) || (/game/i.test(type) ? o.name || o.title : null);
-      if (nm && (/game|object/i.test(type) || /\/games\//.test(String(o.url || o.slug || "")))) add(nm);
-      Object.keys(o).forEach(k => walk(o[k], depth + 1));
-    };
-    try { walk(JSON.parse(m[1]), 0); } catch (e) {}
-  }
-  // the page's own ranked tiles (<figcaption data-cy="tile-title">Grand Theft Auto VI</figcaption>, in rank order): IGN no
-  // longer puts the games in __NEXT_DATA__ (its list data is compressed), so these come first
-  const ent = t => t.replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&#x2F;/g, "/");
-  const tiles = (html.match(/data-cy="tile-title"[^>]*>([^<]{2,90})</g) || []).map(t => ent(t.replace(/^[^>]*>/, "").replace(/<$/, "")));
-  if (tiles.length >= 5) { names.length = 0; tiles.forEach(add); }
-  if (names.length < 5) {   // no page data: the list's headings
-    (html.match(/<h[23][^>]*>([^<]{2,90})<\/h[23]>/g) || []).forEach(h => add(h.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/^\d+\.\s*/, "")));
-  }
-  if (names.length < 5) throw new Error("no games found on the page");
-  return names;
-}
-async function wanted() {
-  const cacheFile = "ign_wanted.json";
-  let names = null, src = "ign", at = null;
-  try { names = await ignWanted(); write(cacheFile, { updatedAt: new Date().toISOString(), names }); at = new Date().toISOString(); }
-  catch (e) {
-    const old = read(cacheFile, null);
-    console.log("Most wanted: IGN's list couldn't be read (" + e.message + ")" + (old ? ", using the copy from " + old.updatedAt : ""));
-    if (old && NOW - Date.parse(old.updatedAt) < WANTED_KEEP_DAYS * DAY) { names = old.names; at = old.updatedAt; }
-  }
-  let list = [];
-  if (names) {
-    // each name, matched to this store's game of the same name (any edition): only games this store sells or lists
-    const byKey = byTitle;
-    names.forEach(n => {
-      const k = editionKey(n), id = byKey[k];
-      if (id && !list.includes(id)) list.push(id);
-    });
-    if (list.length < 5) { console.log("Most wanted: only " + list.length + " of IGN's " + names.length + " games are on this store; using wishlists"); list = []; }
-  }
-  if (!list.length) {   // the games most wishlisted on the site
-    src = "wishlist"; at = new Date().toISOString();
-    const wc = read("wishcounts.json", {}), n = id => Number(wc[id] || wc[String(id).toUpperCase()] || wc[String(id).toLowerCase()]) || 0;
-    list = one(ids.filter(id => isGame(games[id]) && n(id) > 0 && (PS ? !/^[A-Z0-9]{12}$/i.test(id) : /^[A-Z0-9]{12}$/i.test(id))).sort((a, b) => n(b) - n(a))).slice(0, 50);
-    return { src, at, games: list.map(id => Object.assign(clean(entry(id, games[id])), { wc: n(id) })) };
-  }
-  return { src, at, url: WANTED_URL, games: list.slice(0, 100).map(id => clean(entry(id, games[id]))) };
+// ---------- upcoming games from acclaimed studios (Xbox) / publishers (PlayStation) ----------
+// The studios whose released games have the most store ratings and the best review scores, and their games still to
+// come. Xbox: the developer (dv, from the store's product data: xPublisherIds_), else the publisher; PlayStation's store
+// names no developer, so there it's the publisher (pk).
+//   acclaim of a studio = its average review score (Metascore, else stars x 20 with 50+ ratings) x log10(1 + all its
+//   games' store ratings); it needs ACCLAIM_MIN_SCORED games with a score and ACCLAIM_MIN_RATINGS ratings in all.
+const ACCLAIM_STUDIOS = 40, ACCLAIM_MIN_SCORED = 2, ACCLAIM_MIN_RATINGS = PS ? 20000 : 5000, ACCLAIMED_N = 80;
+const reviewScore = g => mcOf(g) || (g.ra && g.ra[1] >= 50 ? Number(g.ra[0]) * 20 : 0);
+const studioKey = g => !PS && g.dv ? "d" + pubKey(g.dv) : pk(g);
+const studioName = g => !PS && g.dv ? g.dv : g.p || "";
+function acclaimed() {
+  const st = Object.create(null);
+  mains.forEach(id => {
+    const g = games[id];
+    if (!relOf(g) || relOf(g) > NOW) return;
+    const k = studioKey(g);
+    if (!k || k === "d") return;
+    const s = st[k] || (st[k] = { name: studioName(g), n: 0, rc: 0, scored: 0, sum: 0 });
+    s.n++; s.rc += rc(id);
+    const sc = reviewScore(g);
+    if (sc) { s.scored++; s.sum += sc; }
+  });
+  const top = Object.keys(st).map(k => Object.assign({ k }, st[k], { score: st[k].scored ? st[k].sum / st[k].scored : 0 }))
+    .filter(s => s.scored >= ACCLAIM_MIN_SCORED && s.rc >= ACCLAIM_MIN_RATINGS)
+    .map(s => Object.assign(s, { acclaim: s.score * Math.log10(1 + s.rc) }))
+    .sort((a, b) => b.acclaim - a.acclaim).slice(0, ACCLAIM_STUDIOS);
+  const rank = Object.create(null);
+  top.forEach((s, i) => { rank[s.k] = i; });
+  // their games still to come (with a date, within 3 years), soonest first, one per game: its standard edition (the one
+  // without an edition in its name, else the cheapest), dated by its earliest edition (early access)
+  const coming = Object.create(null);
+  ids.forEach(id => {
+    const g = games[id];
+    if (!isGame(g) || !(relOf(g) > NOW && relOf(g) < NOW + 3 * 365 * DAY) || rank[studioKey(g)] === undefined) return;
+    const k = gid(id), c = coming[k] || (coming[k] = { ids: [], t: Infinity });
+    c.ids.push(id); c.t = Math.min(c.t, relOf(g));
+  });
+  const EDN = /\b(edition|bundle|version)\b/i;
+  const list = Object.keys(coming).map(k => {
+    const c = coming[k], rep = c.ids.slice().sort((a, b) => EDN.test(games[a].t) - EDN.test(games[b].t) || /pre-?order/i.test(games[a].t) - /pre-?order/i.test(games[b].t) || /standard/i.test(games[b].t) - /standard/i.test(games[a].t) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
+    return { id: rep, t: c.t };
+  }).sort((a, b) => a.t - b.t || rank[studioKey(games[a.id])] - rank[studioKey(games[b.id])]).slice(0, ACCLAIMED_N).map(x => x.id);
+  return {
+    by: PS ? "publisher" : "studio",
+    studios: top.map(s => ({ name: s.name, games: s.n, ratings: s.rc, score: Math.round(s.score) })),
+    games: list.map(id => Object.assign(clean(entry(id, games[id])), { studio: studioName(games[id]) }))
+  };
 }
 
 // ---------- PS Plus: new in the catalog, and announced ----------
@@ -306,13 +294,13 @@ async function psPlus() {
 }
 
 (async () => {
-  const out = { updatedAt: new Date().toISOString(), plat, year, bestYears, recent, upcoming, free, meta, publishers, wanted: await wanted() };
+  const out = { updatedAt: new Date().toISOString(), plat, year, bestYears, recent, upcoming, free, meta, publishers, acclaimed: acclaimed() };
   if (PS) out.psplus = await psPlus();
   write(plat + "_lists.json", out);
-  // the home page's "Most wanted" row: the same games (IGN's list, else the site's wishlists), in order
+  // the home page's row: the same games, soonest first (it replaces the "Most wanted" row)
   const h = read(homeFile, null);
-  if (h && h.sections) { h.sections.wanted = out.wanted.games.slice(0, 20); h.sections.wantedSrc = out.wanted.src; write(homeFile, h); }
+  if (h && h.sections) { h.sections.acclaimed = out.acclaimed.games.slice(0, 20); h.sections.acclaimedBy = out.acclaimed.by; delete h.sections.wanted; delete h.sections.wantedSrc; write(homeFile, h); }
   console.log("Lists (" + plat + "): recent " + recent.length + ", upcoming " + upcoming.length + ", free " + free.length + ", Metacritic " + meta.length +
-    ", publishers " + publishers.length + ", best of " + years.join("/") + ", most wanted " + out.wanted.games.length + " (" + out.wanted.src + ")" +
+    ", publishers " + publishers.length + ", best of " + years.join("/") + ", acclaimed " + out.acclaimed.by + "s' upcoming games " + out.acclaimed.games.length + " (top: " + out.acclaimed.studios.slice(0, 8).map(s => s.name).join(", ") + ")" +
     (PS ? ", PS Plus added " + out.psplus.added.length + ", coming " + out.psplus.coming.length : "") + ", publisher rows " + pubsale.map(p => p.name + " " + p.n).join(", "));
 })();

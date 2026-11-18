@@ -511,7 +511,11 @@ function gamePagesFor_(pre) {
     });
   } else {
     const pubIds = psReadJson_("XPUBIDS_FILE_ID", { p: {} }).p || {};
-    Object.keys(games).forEach(id => { const p = pubIds[String(id).toUpperCase()]; if (p && p[0] && !games[id].a) games[id].pb = p[0]; });
+    Object.keys(games).forEach(id => {
+      const p = pubIds[String(id).toUpperCase()];
+      if (p && p[0] && !games[id].a) games[id].pb = p[0];
+      if (p && p[3] && !games[id].a) games[id].dv = p[3];   // the developer (studio): jobs/lists.js acclaimed studios
+    });
   }
   console.log((ps ? "PlayStation" : "Xbox") + " add-ons matched to their game: " + attachAddOns_(games, ps ? psAddOnsSeen_(games) : xAddOnsAll_(), ps));
 
