@@ -231,18 +231,52 @@ function psFranchiseArt_(pids) {
   const need = pids.filter(p => p && !(p in PS_FRANCHISE_ART));
   if (need.length) {
     const found = psLookup_("metGetProductById", need, Date.now() + 60000);
-    need.forEach(p => { const m = found[p] && found[p].media; PS_FRANCHISE_ART[p] = m && m.length ? { image: psImage_(m), sq: psSquare_(m) } : null; });
+    need.forEach(p => { const m = found[p] && found[p].media; PS_FRANCHISE_ART[p] = m && m.length ? { image: psImage_(m, found[p].name), sq: psSquare_(m) } : null; });
   }
   const out = {};
   pids.forEach(p => { if (PS_FRANCHISE_ART[p]) out[p] = PS_FRANCHISE_ART[p]; });
   return out;
 }
-// Portrait cover (same 2:3 shape as the Xbox posters), else the square one
-function psImage_(media) {
+// Portrait cover (2:3, like the Xbox posters). About a third of PlayStation's games have none in any store (only square
+// and wide art: Red Dead Redemption 2, Minecraft, Final Fantasy VII Rebirth…), and their square cover cropped into the
+// site's 2:3 frames cut their titles: those take the Xbox store's poster of the same game (the same publisher art, in 2:3),
+// matched by name without the edition; only games Xbox doesn't sell keep the square one (the site shows it whole, over a
+// blurred copy: site.js fitArt). title: the product's or game's name (none for add-ons)
+function psImage_(media, title) {
   const list = media || [];
-  const pick = list.find(m => m.role === "PORTRAIT_BANNER") || list.find(m => m.role === "MASTER") ||
-               list.find(m => m.role === "GAMEHUB_COVER_ART") || list.find(m => m.type === "IMAGE");
+  const portrait = list.find(m => m.role === "PORTRAIT_BANNER");
+  if (portrait) return String(portrait.url).split("?")[0];
+  const x = title ? psXboxPoster_(title) : null;
+  if (x) return x;
+  const pick = list.find(m => m.role === "MASTER") || list.find(m => m.role === "GAMEHUB_COVER_ART") || list.find(m => m.type === "IMAGE");
   return pick ? String(pick.url).split("?")[0] : null;
+}
+// The Xbox store's poster for a game (xbox_catalog.json, its best-selling edition), or null. Names are compared without
+// their edition (edStrip_) and spaces ("TEKKEN™7" / "TEKKEN 7"), then also without any "… Edition" at the end
+let PS_XPOSTERS = null;
+const psPosterKeys_ = t => {
+  const a = addOnName_(edStrip_(t)).replace(/ /g, ""), b = addOnName_(edStrip_(t).replace(/(\s+[^\s]+){1,2}\s+(edition|bundle)\b.*$/i, "")).replace(/ /g, "");
+  return [a, "~" + b];
+};
+function psXboxPoster_(title) {
+  if (!PS_XPOSTERS) {
+    PS_XPOSTERS = Object.create(null);
+    let n = 0;
+    try {
+      (psReadJson_("CATALOG_FILE_ID", { games: [] }).games || []).slice().sort((a, b) => (a[7] || 1e9) - (b[7] || 1e9)).forEach(r => {
+        const im = String(r[6] || "");
+        if (!im || /\b(upgrade|season pass|dlc|soundtrack|add-?on)\b/i.test(r[1] || "")) return;
+        psPosterKeys_(r[1]).forEach(k => {
+          if (k.replace("~", "").length < 3 || PS_XPOSTERS[k]) return;
+          PS_XPOSTERS[k] = im.startsWith("http") ? im : "https://store-images.s-microsoft.com/image/" + im;
+          n++;
+        });
+      });
+    } catch (e) { Logger.log("Xbox posters for PlayStation games: " + e.message); }
+    Logger.log("Xbox posters for PlayStation games without one: " + n + " names to match");
+  }
+  const k = psPosterKeys_(title);
+  return PS_XPOSTERS[k[0]] || PS_XPOSTERS[k[1]] || null;
 }
 // " (at 42 s)" for the logs, so a slow step is easy to spot
 function psAt_(startTime) { return " (at " + Math.round((Date.now() - startTime) / 1000) + " s)"; }
@@ -444,7 +478,7 @@ function exportPlayStation_(opts) {
       title: p.name || "", publisher: null, kind: p.localizedStoreDisplayClassification || "",
       platforms: p.platforms || [],
       msrp: base, price: price, discountPercent: Math.round((1 - price / base) * 100),
-      currency: "USD", image: psImage_(p.media), sq: psSquare_(p.media), url: PS_STORE + "product/" + p.id,
+      currency: "USD", image: psImage_(p.media, psIsGame_(p.storeDisplayClassification) ? p.name : null), sq: psSquare_(p.media), url: PS_STORE + "product/" + p.id,
       subs: psSubs_(tiers), tiers: tiers, genres: []
     });
     PS_ART[p.id] = { sq: psSquare_(p.media), wide: psWide_(p.media) };
@@ -772,7 +806,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
     const fa = cp.title && pid ? psFranchiseArt_([pid])[pid] : null;   // a franchise page: its game's own art
     return {
       id: String(c.id), pid: pid || "", title: cp.title || c.name || "", publisher: d.pub || "",
-      image: (fa && fa.image) || psImage_(c.media), sq: (fa && fa.sq) || psSquare_(c.media), wide: fa ? null : psWide_(c.media),
+      image: (fa && fa.image) || psImage_(c.media, cp.title || c.name), sq: (fa && fa.sq) || psSquare_(c.media), wide: fa ? null : psWide_(c.media),
       price: price || 0, msrp: base || price || 0, currency: "USD", date: rel,
       ra: star(pid) ? star(pid)[0] : null, rc: star(pid) ? star(pid)[1] : 0,
       gp: subs.indexOf("psplus") >= 0, xs: subs.filter(s => s !== "psplus"), low: false, ends: null, pc: false, tiers: tiers,
@@ -877,7 +911,7 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
     const pid = (c.products && c.products[0] && c.products[0].id) || "";
     if (cp.title && pid) franchise.push([rows.length, pid]);
     rows.push([String(c.id), cp.title || c.name || "", (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
-               psImage_(c.media), i + 1, psSubs_(tiers).join(","), 0, "", tiers.join(","), PS_STORE + "concept/" + c.id, pid,
+               psImage_(c.media, cp.title || c.name), i + 1, psSubs_(tiers).join(","), 0, "", tiers.join(","), PS_STORE + "concept/" + c.id, pid,
                String(psSquare_(c.media) || "").replace(PS_IMG_ROOT, "~"), 0,
                psConceptIds_(c).length > 1 ? psConceptIds_(c).join(",") : ""]);   // 16: the game's editions (product ids)
   });
@@ -989,7 +1023,7 @@ function exportPsRegion_(code, startTime) {
   const storeBase = "https://store.playstation.com/" + locale.toLowerCase() + "/product/";
   const extra = sale.filter(p => !us[keyOf(p)]).map(p => {
     const tiers = psTiers_(p.price, [p.id]).filter(t => t !== "pspremium");   // can't tell Premium catalog from a trial here
-    return { productId: p.id, key: keyOf(p), title: p.name || "", publisher: "", image: psImage_(p.media), pc: false,
+    return { productId: p.id, key: keyOf(p), title: p.name || "", publisher: "", image: psImage_(p.media, psIsGame_(p.storeDisplayClassification) ? p.name : null), pc: false,
              platforms: p.platforms || [], url: storeBase + p.id, subs: psSubs_(tiers), tiers: tiers, genres: [] };
   });
 
