@@ -259,7 +259,8 @@ const NETWORKS = {
   const [mode, plat] = process.argv.slice(2);
   if (!(mode === "weekly" || (mode === "deals" && PLAT[plat]))) { console.log("usage: node jobs/social.js deals xbox|ps | weekly"); process.exit(1); }
   const job = mode === "weekly" ? weeklyPosts() : dealPosts(plat);
-  const nets = Object.keys(NETWORKS).filter(n => NETWORKS[n].ready());
+  const only = (env.SOCIAL_ONLY || "").toLowerCase().split(/[\s,]+/).filter(Boolean);   // a manual test on some networks only
+  const nets = Object.keys(NETWORKS).filter(n => NETWORKS[n].ready() && (!only.length || only.includes(n)));
   console.log("Social " + mode + (plat ? " " + plat : "") + ": " + job.posts.length + " to post" +
               (DRY ? " (dry run)" : "") + "; networks: " + (nets.join(", ") || "none set up"));
   if (!job.posts.length) return;

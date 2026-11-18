@@ -9,6 +9,10 @@ on:
         description: "Post again even if this week's roundup was already posted"
         type: boolean
         default: false
+      only:
+        description: "Post only to these networks (e.g. facebook,instagram); empty: all that are set up"
+        type: string
+        default: ""
 concurrency:
   group: social-weekly
   cancel-in-progress: false
@@ -51,6 +55,7 @@ jobs:
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           SOCIAL_DRY_RUN: ${{ vars.SOCIAL_DRY_RUN }}
           SOCIAL_FORCE: ${{ inputs.force && '1' || '' }}
+          SOCIAL_ONLY: ${{ inputs.only }}
         run: node jobs/social.js weekly
       - name: Upload what was posted
         if: always()
