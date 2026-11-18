@@ -40,19 +40,31 @@ const jpeg = (u, w) => u ? "https://wsrv.nl/?url=" + encodeURIComponent(u) + "&w
 // the game's 16:9 hero art (the game page's banner), from the media files (jobs/media.js); "" when it has none
 const SHARDS = 64, mediaCache = {};
 const shardOf = id => { let h = 0; const s = String(id).toUpperCase(); for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0; return h % SHARDS; };
-function heroOf(plat, id) {
-  const f = "media/" + plat + "-" + shardOf(id) + ".json";
-  if (!(f in mediaCache)) {
-    let m = read(f, null);
-    if (!m && env.R2) {   // not downloaded by this workflow: fetch just this file (outside data/, so it isn't uploaded again)
-      const tmp = path.join(require("os").tmpdir(), "social-" + f.replace("/", "-"));
-      try { require("child_process").execFileSync("aws", ["s3", "cp", "s3://ggdata/data/" + f, tmp, "--endpoint-url", env.R2, "--only-show-errors"]);
-        m = JSON.parse(fs.readFileSync(tmp, "utf8")); } catch (e) { m = null; }
-    }
-    mediaCache[f] = (m && m.games) || {};
+// a data file: from data/ when this workflow downloaded it, else fetched on its own (outside data/, so it isn't uploaded again)
+function load(f) {
+  let m = read(f, null);
+  if (!m && env.R2) {
+    const tmp = path.join(require("os").tmpdir(), "social-" + f.replace(/\//g, "-"));
+    try { require("child_process").execFileSync("aws", ["s3", "cp", "s3://ggdata/data/" + f, tmp, "--endpoint-url", env.R2, "--only-show-errors"]);
+      m = JSON.parse(fs.readFileSync(tmp, "utf8")); } catch (e) { m = null; }
   }
-  const e = mediaCache[f][id] || mediaCache[f][String(id).toUpperCase()];
-  return e && e.h ? fullImg(e.h) : "";
+  return m;
+}
+// PlayStation media is kept by the game's catalog id (ps_catalog.json row [0]), deals carry the product id (row [13])
+let psIds = null;
+const psGameId = pid => {
+  if (!psIds) { psIds = {}; ((load("ps_catalog.json") || {}).games || []).forEach(r => { if (r[0] && r[13]) psIds[r[13]] = String(r[0]); }); }
+  return psIds[pid] || pid;
+};
+function heroOf(plat, id) {
+  const ids = plat === "ps" ? [psGameId(id), id] : [id];
+  for (const k of ids) {
+    const f = "media/" + plat + "-" + shardOf(k) + ".json";
+    if (!(f in mediaCache)) mediaCache[f] = (load(f) || {}).games || {};
+    const e = mediaCache[f][k] || mediaCache[f][String(k).toUpperCase()];
+    if (e && e.h) return fullImg(e.h);
+  }
+  return "";
 }
 const wide = (u, w) => u ? "https://wsrv.nl/?url=" + encodeURIComponent(u) + "&w=" + w + "&h=" + Math.round(w * 9 / 16) + "&fit=cover&output=jpg&q=85" : "";
 // the picture a network shows: the hero art when the game has one (16:9), else the cover (square)
