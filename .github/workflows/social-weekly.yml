@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "23 16 * * 0"   # Sunday afternoon in Europe, morning in the US
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Post again even if this week's roundup was already posted"
+        type: boolean
+        default: false
 concurrency:
   group: social-weekly
   cancel-in-progress: false
@@ -43,6 +48,7 @@ jobs:
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           SOCIAL_DRY_RUN: ${{ vars.SOCIAL_DRY_RUN }}
+          SOCIAL_FORCE: ${{ inputs.force && '1' || '' }}
         run: node jobs/social.js weekly
       - name: Upload what was posted
         if: always()

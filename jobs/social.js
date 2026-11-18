@@ -101,7 +101,7 @@ function weeklyPosts() {
   const posted = read("social/weekly-posted.json", {}), posts = [];
   for (const plat of ["xbox", "ps"]) {
     const idx = read("weekly/" + plat + "-index.json", { weeks: [] }), wk = (idx.weeks || [])[0];
-    if (!wk || posted[plat] === wk.week) continue;
+    if (!wk || (posted[plat] === wk.week && env.SOCIAL_FORCE !== "1")) continue;   // SOCIAL_FORCE=1: post again (a manual test)
     const week = read("weekly/" + plat + "-" + wk.week + ".json", { games: [] });
     const top = (week.games || []).filter(g => !(g.ends && Date.parse(g.ends) <= Date.now())).slice(0, 5);
     if (top.length < 3) continue;
