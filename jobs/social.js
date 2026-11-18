@@ -22,6 +22,9 @@ const env = Object.assign({}, process.env), DRY = env.SOCIAL_DRY_RUN === "1";
  "PINTEREST_ACCESS_TOKEN", "X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"].forEach(k => {
   if (env[k]) env[k] = env[k].replace(/\([^)]*\)/g, "").replace(/[\s"']+/g, "");
 });
+// a Meta Page token starts with "EAA": drop anything pasted before it (like the "FB_PAGE_TOKEN" label)
+if (env.FB_PAGE_TOKEN && env.FB_PAGE_TOKEN.indexOf("EAA") > 0) env.FB_PAGE_TOKEN = env.FB_PAGE_TOKEN.slice(env.FB_PAGE_TOKEN.indexOf("EAA"));
+const shape = v => v ? v.length + " characters, " + (/^EAA/.test(v) ? "starts with EAA (good)" : "does NOT start with EAA") : "empty";
 const SITE = "https://gamedealtrack.com";
 const GRAPH = "https://graph.facebook.com/" + (env.FB_GRAPH_VERSION || "v23.0");
 const MIN_SCORE = Number(env.SOCIAL_MIN_SCORE || 85);   // deal score (0-100, gs/xbox.gs dealScore_) for a deal to be posted…
@@ -273,6 +276,9 @@ const NETWORKS = {
     job.posts.forEach(p => console.log("\n" + p.head + "\n" + p.line + "\n" + p.url + "\n  image: " + (p.image || p.hero ? pic(p, 1200) : "none")));
     return;
   }
+  if (nets.includes("facebook") || nets.includes("instagram"))   // what the Meta secrets look like, without showing them
+    console.log("FB_PAGE_TOKEN: " + shape(env.FB_PAGE_TOKEN) + "; FB_PAGE_ID: " + (/^\d+$/.test(env.FB_PAGE_ID || "") ? "a number (good)" : "not a number") +
+                "; IG_USER_ID: " + (!env.IG_USER_ID ? "not set" : /^\d+$/.test(env.IG_USER_ID) ? "a number (good)" : "not a number"));
   const done = [];
   for (const p of job.posts) {
     let any = false;
