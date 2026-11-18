@@ -45,11 +45,19 @@ const server = http.createServer(async (req, res) => {
     let pinMsg = "";
     if (BOARD) {
       console.log("\n4. Posting a test pin to board " + BOARD + "…");
-      const pin = await api("POST", "/pins", t.access_token, { board_id: BOARD, title: "GameDealTrack: Xbox & PlayStation deals",
+      let pin = null;
+      try { pin = await api("POST", "/pins", t.access_token, { board_id: BOARD, title: "GameDealTrack: Xbox & PlayStation deals",
         description: "Every Xbox & PlayStation deal, the moment it drops. #GameDeals", link: "https://gamedealtrack.com/?utm_source=pinterest&utm_medium=social",
-        alt_text: "The GameDealTrack logo", media_source: { source_type: "image_url", url: "https://gamedealtrack.com/og.png" } });
+        alt_text: "The GameDealTrack logo", media_source: { source_type: "image_url", url: "https://gamedealtrack.com/og.png" } }); }
+      catch (e) {   // Trial apps may only create pins in the sandbox (with a sandbox token: see pinterest-token.js)
+        if (!/"code":29|Trial access/.test(e.message)) throw e;
+        console.log("   Not posted: with Trial access, Pinterest only allows pins in its sandbox (a separate test token).");
+        pinMsg = " (Pins can be posted here once Pinterest grants Standard access.)";
+      }
+      if (pin) {
       console.log("   Pin created: https://www.pinterest.com/pin/" + pin.id + "/");
       pinMsg = ` A test pin was posted: <a href="https://www.pinterest.com/pin/${pin.id}/">open it</a>.`;
+    }
     }
     console.log("\nGitHub secret PINTEREST_REFRESH_TOKEN (valid " + Math.round((t.refresh_token_expires_in || 0) / 86400) + " days):\n\n" + t.refresh_token + "\n");
     page("GameDealTrack is connected to Pinterest", "Signed in as @" + me.username + "." + pinMsg + " You can close this tab.");
