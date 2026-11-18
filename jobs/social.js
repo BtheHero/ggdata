@@ -12,7 +12,7 @@
 //   Bluesky    BSKY_HANDLE, BSKY_APP_PASSWORD
 //   Facebook   FB_PAGE_ID, FB_PAGE_TOKEN (a never-expiring Page token)
 //   Instagram  IG_USER_ID (the Instagram business account linked to the Facebook page; uses FB_PAGE_TOKEN)
-//   Pinterest  PINTEREST_BOARD_ID, PINTEREST_APP_ID, PINTEREST_APP_SECRET, PINTEREST_REFRESH_TOKEN
+//   Pinterest  PINTEREST_BOARD_ID, PINTEREST_APP_ID, PINTEREST_APP_SECRET, PINTEREST_REFRESH_TOKEN (or PINTEREST_ACCESS_TOKEN: ~30 days)
 //   X          X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET (paid per post: capped by X_DAILY_CAP)
 const fs = require("fs"), path = require("path"), crypto = require("crypto");
 const DATA = path.resolve(process.env.DATA_DIR || "data");
@@ -208,8 +208,9 @@ const NETWORKS = {
   },
 
   pinterest: {
-    ready: () => env.PINTEREST_BOARD_ID && env.PINTEREST_APP_ID && env.PINTEREST_APP_SECRET && env.PINTEREST_REFRESH_TOKEN,
-    token: null,
+    // a refresh token (with the app's id and secret) lasts a year; PINTEREST_ACCESS_TOKEN alone works until it expires (about 30 days)
+    ready: () => env.PINTEREST_BOARD_ID && ((env.PINTEREST_APP_ID && env.PINTEREST_APP_SECRET && env.PINTEREST_REFRESH_TOKEN) || env.PINTEREST_ACCESS_TOKEN),
+    token: env.PINTEREST_REFRESH_TOKEN ? null : env.PINTEREST_ACCESS_TOKEN || null,
     async post(p) {
       if (!p.image) throw new Error("Pinterest needs an image");
       if (!this.token) {   // access tokens last 30 days, the refresh token a year: get a fresh one each run
