@@ -16,23 +16,21 @@ Images: the store art is converted to a square JPEG by the free image proxy [wsr
 1. Bluesky → Settings → Privacy and security → App passwords → Add.
 2. Secrets: `BSKY_HANDLE` (e.g. `gamedealtrack.bsky.social`), `BSKY_APP_PASSWORD`.
 
-## Facebook Page (free)
+## Facebook Page and Instagram (free)
 
-1. Create a Facebook Page for the site, and an app at developers.facebook.com (type **Business**), with the permissions `pages_manage_posts`, `pages_read_engagement` (and for Instagram: `instagram_basic`, `instagram_content_publish`).
-2. In the Graph API Explorer, pick your app, get a **User** token with those permissions, then exchange it for a long-lived one:
-   `GET /oauth/access_token?grant_type=fb_exchange_token&client_id=APP_ID&client_secret=APP_SECRET&fb_exchange_token=SHORT_TOKEN`
-3. With the long-lived user token, `GET /me/accounts`: the page's `access_token` there does not expire.
-4. Secrets: `FB_PAGE_ID` (the page's `id` from step 3), `FB_PAGE_TOKEN` (its `access_token`).
+1. A Facebook Page, and an Instagram **professional** account (Business or Creator) linked to it (Instagram → Settings →
+   Account type and tools; or the Page's settings → Linked accounts).
+2. developers.facebook.com → My Apps → Create app (type **Business**), with the use cases for managing a Page's posts and
+   Instagram content. The app can stay in development mode: you're its admin, posting to your own Page and account.
+3. Graph API Explorer (developers.facebook.com/tools/explorer): pick your app, "Get User Access Token" with
+   `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `instagram_basic`, `instagram_content_publish`,
+   and tick your Page (and Instagram account) when asked. Copy the token.
+4. On your computer: `node tools/meta-setup.js`. It asks for the app's id and secret (App settings → Basic) and that
+   token, and prints `FB_PAGE_ID`, `FB_PAGE_TOKEN` (never expires) and `IG_USER_ID`; it can post a test photo to each.
+5. Secrets: `FB_PAGE_ID`, `FB_PAGE_TOKEN`, `IG_USER_ID`.
 
-While the app is in development mode only you (the app's admin) can use it, which is all this needs: posting to your own page doesn't require App Review.
-
-## Instagram (free)
-
-1. Switch the Instagram account to a **Business** or **Creator** account and link it to the Facebook Page (Instagram → Settings → Account type and tools; or the Page's settings → Linked accounts).
-2. With the page token: `GET /PAGE_ID?fields=instagram_business_account` gives the account id.
-3. Secret: `IG_USER_ID`. It uses `FB_PAGE_TOKEN` too.
-
-Links aren't clickable in Instagram captions, so posts say "Link in bio": put `https://gamedealtrack.com` in the profile's bio. Instagram allows 100 API posts a day; this posts at most about 13.
+Links aren't clickable in Instagram captions, so Instagram posts say "Link in bio": put `https://gamedealtrack.com` in
+the profile. Instagram allows 100 API posts a day; this posts at most about 13.
 
 ## Pinterest (free)
 
