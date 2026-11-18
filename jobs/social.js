@@ -37,6 +37,26 @@ const fullImg = u => !u ? "" : /^https?:/.test(u) ? u : u[0] === "~" ? "https://
   : "https://store-images.s-microsoft.com/image/" + u;
 // a JPEG of the game's art at a size every network takes (Instagram needs a JPEG; Bluesky needs it under 1 MB)
 const jpeg = (u, w) => u ? "https://wsrv.nl/?url=" + encodeURIComponent(u) + "&w=" + w + "&h=" + w + "&fit=contain&cbg=000000&output=jpg&q=85" : "";
+// the game's 16:9 hero art (the game page's banner), from the media files (jobs/media.js); "" when it has none
+const SHARDS = 64, mediaCache = {};
+const shardOf = id => { let h = 0; const s = String(id).toUpperCase(); for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) >>> 0; return h % SHARDS; };
+function heroOf(plat, id) {
+  const f = "media/" + plat + "-" + shardOf(id) + ".json";
+  if (!(f in mediaCache)) {
+    let m = read(f, null);
+    if (!m && env.R2) {   // not downloaded by this workflow: fetch just this file (outside data/, so it isn't uploaded again)
+      const tmp = path.join(require("os").tmpdir(), "social-" + f.replace("/", "-"));
+      try { require("child_process").execFileSync("aws", ["s3", "cp", "s3://ggdata/data/" + f, tmp, "--endpoint-url", env.R2, "--only-show-errors"]);
+        m = JSON.parse(fs.readFileSync(tmp, "utf8")); } catch (e) { m = null; }
+    }
+    mediaCache[f] = (m && m.games) || {};
+  }
+  const e = mediaCache[f][id] || mediaCache[f][String(id).toUpperCase()];
+  return e && e.h ? fullImg(e.h) : "";
+}
+const wide = (u, w) => u ? "https://wsrv.nl/?url=" + encodeURIComponent(u) + "&w=" + w + "&h=" + Math.round(w * 9 / 16) + "&fit=cover&output=jpg&q=85" : "";
+// the picture a network shows: the hero art when the game has one (16:9), else the cover (square)
+const pic = (p, w) => p.hero ? wide(p.hero, w) : jpeg(p.image, w);
 const withUtm = (u, src) => u + (u.includes("?") ? "&" : "?") + "utm_source=" + src + "&utm_medium=social";
 const endsText = e => e ? " · ends " + new Date(e).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) : "";
 
@@ -69,7 +89,7 @@ function dealPosts(plat) {
       const head = "🔥 " + g.title + ": " + pct + "% off on " + PLAT[plat].name;
       const line = money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")" + (g.atLow ? " · lowest price ever" : "") + endsText(g.saleEnds);
       return { key: g.productId, title: g.title + " – " + pct + "% off (" + PLAT[plat].name + ")", head, line,
-        url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), tags: PLAT[plat].tags };
+        url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags };
     }),
     remember: keys => { picked.filter(g => keys.includes(g.productId)).forEach(g => { posted[g.productId] = posted["t:" + gameKey(g.title)] = today(); });
       Object.keys(posted).forEach(k => { if (posted[k] < cutoff) delete posted[k]; });
@@ -88,7 +108,7 @@ function weeklyPosts() {
     posts.push({ key: plat, week: wk.week, title: "This week's best " + PLAT[plat].name + " deals",
       head: "🎮 This week's best " + PLAT[plat].name + " deals",
       line: top.map((g, i) => (i + 1) + ". " + g.title + " " + money(g.price, g.currency) + " (-" + pctOff(g) + "%)").join("\n"),
-      url: SITE + "/best-deals/" + plat, image: fullImg(top[0].sq || top[0].image), tags: PLAT[plat].tags });
+      url: SITE + "/best-deals/" + plat, image: fullImg(top[0].sq || top[0].image), hero: heroOf(plat, top[0].id), tags: PLAT[plat].tags });
   }
   return { posts, remember: keys => { posts.filter(p => keys.includes(p.key)).forEach(p => { posted[p.key] = p.week; }); write("social/weekly-posted.json", posted); } };
 }
@@ -127,7 +147,7 @@ const NETWORKS = {
       const external = { uri: withUtm(p.url, "bluesky"), title: p.title, description: "Price history, deal score and where to play on GameDealTrack" };
       if (p.image) {
         try {
-          const img = await fetch(jpeg(p.image, 800));
+          const img = await fetch(pic(p, 1200));
           if (img.ok) {
             const blob = await ok(await fetch(host + "/xrpc/com.atproto.repo.uploadBlob", { method: "POST",
               headers: Object.assign({ "content-type": "image/jpeg" }, auth), body: Buffer.from(await img.arrayBuffer()) }), "Bluesky image");
@@ -147,7 +167,7 @@ const NETWORKS = {
     async post(p) {
       const message = [p.head, p.line, "", withUtm(p.url, "facebook"), "", p.tags.map(t => "#" + t).join(" ")].join("\n");
       const body = new URLSearchParams({ access_token: env.FB_PAGE_TOKEN });
-      if (p.image) { body.set("url", jpeg(p.image, 1080)); body.set("caption", message); }
+      if (p.image) { body.set("url", pic(p, 1200)); body.set("caption", message); }
       else { body.set("message", message); body.set("link", withUtm(p.url, "facebook")); }
       const r = await ok(await fetch(GRAPH + "/" + env.FB_PAGE_ID + (p.image ? "/photos" : "/feed"), { method: "POST", body }), "Facebook");
       return r.post_id || r.id;
@@ -161,7 +181,7 @@ const NETWORKS = {
       // links in captions aren't clickable on Instagram: point to the link in the bio
       const caption = [p.head, p.line, "", "Link in bio: gamedealtrack.com", "", p.tags.concat(["VideoGames", "Gaming"]).map(t => "#" + t).join(" ")].join("\n");
       const c = await ok(await fetch(GRAPH + "/" + env.IG_USER_ID + "/media", { method: "POST",
-        body: new URLSearchParams({ image_url: jpeg(p.image, 1080), caption, access_token: env.FB_PAGE_TOKEN }) }), "Instagram upload");
+        body: new URLSearchParams({ image_url: pic(p, 1080), caption, access_token: env.FB_PAGE_TOKEN }) }), "Instagram upload");
       for (let i = 0; i < 12; i++) {   // the image is fetched and processed by Instagram first
         const st = await ok(await fetch(GRAPH + "/" + c.id + "?fields=status_code&access_token=" + encodeURIComponent(env.FB_PAGE_TOKEN)), "Instagram status");
         if (st.status_code === "FINISHED") break;
@@ -230,7 +250,7 @@ const NETWORKS = {
               (DRY ? " (dry run)" : "") + "; networks: " + (nets.join(", ") || "none set up"));
   if (!job.posts.length) return;
   if (DRY || !nets.length) {
-    job.posts.forEach(p => console.log("\n" + p.head + "\n" + p.line + "\n" + p.url + "\n  image: " + (p.image ? jpeg(p.image, 1080) : "none")));
+    job.posts.forEach(p => console.log("\n" + p.head + "\n" + p.line + "\n" + p.url + "\n  image: " + (p.image || p.hero ? pic(p, 1200) : "none")));
     return;
   }
   const done = [];
