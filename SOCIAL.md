@@ -36,10 +36,28 @@ Links aren't clickable in Instagram captions, so posts say "Link in bio": put `h
 
 ## Pinterest (free)
 
-1. Make it a business account, create a board (e.g. "Game Deals"), and an app at developers.pinterest.com with the scopes `boards:read`, `pins:read`, `pins:write`. New apps get **Trial access**: request **Standard access** in the app's settings; until then, pins may only be visible to you.
-2. Get a refresh token with the OAuth flow (the app's page has a button to generate an access token for your own account; the token response includes a `refresh_token`, valid for a year).
-3. The board id: `GET https://api.pinterest.com/v5/boards` with the access token.
-4. Secrets: `PINTEREST_BOARD_ID`, `PINTEREST_APP_ID`, `PINTEREST_APP_SECRET`, `PINTEREST_REFRESH_TOKEN`. The job gets a fresh access token each run; renew the refresh token once a year.
+1. A business account, a board (e.g. "Game Deals"), and an app at developers.pinterest.com. In the app's settings, add
+   the Redirect URI `http://localhost:8085/`.
+2. On your computer (Node 18 or newer), from a copy of this repository, with the app's id and secret:
+
+   ```
+   PINTEREST_APP_ID=… PINTEREST_APP_SECRET=… node tools/pinterest-auth.js
+   ```
+
+   (Windows PowerShell: `$env:PINTEREST_APP_ID="…"; $env:PINTEREST_APP_SECRET="…"; node tools/pinterest-auth.js`)
+   It opens Pinterest, you allow access, and it prints your boards with their ids and a refresh token (valid a year).
+   Run it again with a board id at the end to also post a test pin.
+3. Secrets: `PINTEREST_APP_ID`, `PINTEREST_APP_SECRET`, `PINTEREST_REFRESH_TOKEN`, `PINTEREST_BOARD_ID`. The job gets a
+   fresh access token each run; run the script again once a year.
+
+**Trial access**: pins the app makes are visible only to you until Pinterest grants **Standard access**. If posting
+fails with a "trial"/"sandbox" error, add the repository variable `PINTEREST_API` = `https://api-sandbox.pinterest.com`
+(and delete it after approval).
+
+**Standard access video**: screen-record running `node tools/pinterest-auth.js BOARD_ID`: the terminal command, the
+Pinterest sign-in and consent screen, the return to the "connected" page, then the test pin opened on Pinterest. Then
+show the deal pins the job posted on the board. In the request, describe the use: "Posts Xbox and PlayStation game
+deals from gamedealtrack.com to our own board, a few times a day; one account (ours), no other users."
 
 ## X / Twitter (paid, optional)
 

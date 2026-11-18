@@ -23,6 +23,7 @@ const MIN_SCORE = Number(env.SOCIAL_MIN_SCORE || 85);   // deal score (0-100, gs
 const MIN_PCT = Number(env.SOCIAL_MIN_PCT || 50);       // …and the discount it needs (a new lowest price needs 30%)
 const MAX_DEALS = Number(env.SOCIAL_MAX_DEALS || 3);    // per run (two runs a day per store)
 const REPOST_DAYS = 30;
+const PIN_API = env.PINTEREST_API || "https://api.pinterest.com";   // Trial apps can be pointed at https://api-sandbox.pinterest.com
 const X_DAILY_CAP = Number(env.X_DAILY_CAP || 15);      // X bills every post: a cap on the spend
 const PLAT = { xbox: { name: "Xbox", tags: ["Xbox", "XboxDeals", "GameDeals"] }, ps: { name: "PlayStation", tags: ["PlayStation", "PSDeals", "GameDeals"] } };
 
@@ -212,13 +213,13 @@ const NETWORKS = {
     async post(p) {
       if (!p.image) throw new Error("Pinterest needs an image");
       if (!this.token) {   // access tokens last 30 days, the refresh token a year: get a fresh one each run
-        const t = await ok(await fetch("https://api.pinterest.com/v5/oauth/token", { method: "POST",
+        const t = await ok(await fetch(PIN_API + "/v5/oauth/token", { method: "POST",
           headers: { authorization: "Basic " + Buffer.from(env.PINTEREST_APP_ID + ":" + env.PINTEREST_APP_SECRET).toString("base64"),
             "content-type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: env.PINTEREST_REFRESH_TOKEN }) }), "Pinterest token");
         this.token = t.access_token;
       }
-      const r = await ok(await fetch("https://api.pinterest.com/v5/pins", { method: "POST",
+      const r = await ok(await fetch(PIN_API + "/v5/pins", { method: "POST",
         headers: { authorization: "Bearer " + this.token, "content-type": "application/json" },
         body: JSON.stringify({ board_id: env.PINTEREST_BOARD_ID, title: p.title.slice(0, 100), link: withUtm(p.url, "pinterest"),
           description: (p.line + "\n" + p.tags.map(t => "#" + t).join(" ")).slice(0, 500), alt_text: p.title.slice(0, 500),
