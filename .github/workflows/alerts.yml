@@ -40,6 +40,8 @@ jobs:
           for f in xbox_catalog.json ps_catalog.json xbox_sales.json ps_sales.json alerts_sent.json; do
             aws s3 cp "s3://ggdata/data/$f" "data/$f" --endpoint-url "$R2" --only-show-errors || true
           done
+          # each region's prices, for price alerts set in another region's store
+          aws s3 cp s3://ggdata/data data --recursive --exclude "*" --include "xbox_prices_*.json" --include "ps_prices_*.json" --endpoint-url "$R2" --only-show-errors || true
       - name: Note what was downloaded
         run: node tools/upload.js snapshot
       - name: Push notification library

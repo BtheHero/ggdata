@@ -5,6 +5,7 @@
 //   pages  Xbox add-ons on sale, then the Xbox game pages
 //   alladdons  every Xbox add-on (part of the games each day)
 //   ps, psmorning, psfill, pspages  PlayStation: full export with regions, morning run, publishers/ratings, game pages
+//   psgaps <region>  only look up the prices a PlayStation region's file misses (fillPsRegionGaps), for testing
 // The files it reads and writes are in data/ (the workflow downloads them from the bucket first and uploads them after).
 const rt = require("./runtime/appsscript");
 const job = process.argv[2];
@@ -126,9 +127,99 @@ function fillRegionGaps(code) {
   });
   rf.na = na;
   rf.gap = gap;
+  // the home page's count of deals in this store: games only (the looked-up prices include the add-ons)
+  const addon = new Set(Object.keys((read("xbox_addons_all.json") || {}).a || {}).map(id => id.toUpperCase()));
+  ((read("xbox_addons.json") || {}).games || []).forEach(g => g.productId && addon.add(String(g.productId).toUpperCase()));
+  rf.dealsCount = Object.keys(rf.prices).filter(id => { const p = rf.prices[id]; return (p[1] > p[0] || p[3] > 0) && !addon.has(id.toUpperCase()); }).length;
   fs.writeFileSync(path.join(dir, gf), JSON.stringify({ updatedAt: new Date().toISOString(), p: gaps }));
   fs.writeFileSync(path.join(dir, file), JSON.stringify(rf));
   console.log(code + " prices the crawl missed: looked up " + order.length + " of " + want.length + " (" + found + " sold there, " + none + " not); " + na.length + " known not sold there");
+}
+
+// ---------- PlayStation: prices the regional lists miss ----------
+// A region's price file has the deals of that store and its 10,000 best-selling games (the store's lists stop there).
+// The US full game list is a different 10,000, so well-known games (Stardew Valley, Stellar Blade…) could be missing,
+// and the site showed the US price converted and linked to the US store. So the games of the US lists that a region's
+// file doesn't have are looked up in that store by their concept id (the same in every region), a part at a time
+// (PS_GAP_MAX a region per run): the concepts of the US deals first, then the full game list by popularity. Each
+// answer has every edition sold there, which also prices the US deals of that game (same edition: psDealKey_, or the
+// store code, psCodeKey_). Kept in data/ps_gaps_<code>.json {p: {concept id: [checked ms, [[deal key, code key, price,
+// regular price, sale end ms, product id, kind], ...]]}} (no editions: not in that store under that id); merged into the
+// region's file (prices, and gap: the keys merged).
+const PS_GAP_MAX = Number(process.env.PS_GAP_MAX) || 1500, PS_GAP_RECHECK_DAYS = 5;
+const PS_GAME_KINDS = /^(FULL_GAME|GAME_BUNDLE|PREMIUM_EDITION|BUNDLE)$/;
+function fillPsRegionGaps(code) {
+  const dir = rt.DATA_DIR, read = f => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch (e) { return null; } };
+  const file = "ps_prices_" + code + ".json", rf = read(file), locale = __XBOX.PS_REGIONS[code];
+  if (!rf || !rf.prices || !rf.currency || !locale) return;
+  (rf.gap || []).forEach(k => { delete rf.prices[k]; });   // last run's merged prices (put back below, from the saved lookups)
+  const own = k => !!rf.prices[k];
+  const sales = (read("ps_sales.json") || {}).games || [], cat = (read("ps_catalog.json") || {}).games || [];
+  const details = (psReadJson_("PS_CACHE_FILE_ID", { details: {} }).details) || {};
+  const usKeys = new Set(), usByCode = {};
+  sales.forEach(g => { if (g.key) { usKeys.add(g.key); const c = psCodeKey_(g.productId); if (c && !usByCode[c]) usByCode[c] = g.key; } });
+  // what to look up: the US deals this region's file doesn't have (by their game's concept), then the full game list
+  const dealCon = [], catCon = [];
+  sales.forEach(g => { const d = details[g.productId]; if (g.key && !own(g.key) && d && d.con) dealCon.push(String(d.con)); });
+  cat.forEach(r => { if (r[0] && !own(String(r[0]))) catCon.push(String(r[0])); });
+  const gf = "ps_gaps_" + code + ".json", gaps = (read(gf) || {}).p || {}, now = Date.now();
+  const saleEnded = x => (x[1] || []).some(e => e[4] && e[4] < now);
+  const want = Array.from(new Set(dealCon.concat(catCon)));
+  const prio = id => { const x = gaps[id]; return !x ? 0 : saleEnded(x) ? 1 : now - x[0] > PS_GAP_RECHECK_DAYS * 864e5 ? 2 : 9; };
+  const order = want.map((id, i) => [id, prio(id), i]).filter(x => x[1] < 9)
+    .sort((a, b) => a[1] - b[1] || (a[1] === 2 ? gaps[a[0]][0] - gaps[b[0]][0] : a[2] - b[2])).slice(0, PS_GAP_MAX).map(x => x[0]);
+  let found = 0, none = 0;
+  for (let i = 0; i < order.length; i += 40) {
+    const chunk = order.slice(i, i + 40);
+    let res = [];
+    try { res = UrlFetchApp.fetchAll(chunk.map(id => psRequest_("metGetPricingDataByConceptId", { conceptId: id }, locale))); }
+    catch (e) { console.log("PlayStation " + code + " gap lookup failed: " + e.message); break; }
+    chunk.forEach((id, k) => {
+      let d = null;
+      try { const r = res[k]; if (r && r.getResponseCode() === 200) d = JSON.parse(r.getContentText()).data; } catch (e) {}
+      if (!d) return;   // no answer: asked again next run
+      const c = d.conceptRetrieve;   // (null: the game isn't in that store)
+      const eds = [];
+      (((c || {}).selectableProducts || {}).purchasableProducts || []).forEach(p => {
+        const pr = p.price || {};
+        if (!p.id || (pr.currencyCode && pr.currencyCode !== rf.currency)) return;
+        const base = psPrice_(pr.basePrice), disc = psPrice_(pr.discountedPrice);
+        if (base === null && disc === null) return;
+        // a PS Plus-only price isn't everyone's price: the regular one then
+        const price = disc === null || pr.isTiedToSubscription || pr.isExclusive ? base : disc;
+        eds.push([psDealKey_(p), psCodeKey_(p.id), price, base === null ? price : base, Number(pr.endTime) || 0, p.id, p.storeDisplayClassification || ""]);
+      });
+      gaps[id] = [now, eds];
+      if (eds.length) found++; else none++;
+    });
+    Utilities.sleep(200);
+  }
+  // merge: each concept's price (its cheapest edition at the regular price, like the US list), and the US deals' editions
+  const gap = [];
+  const put = (k, e) => {
+    if (own(k)) return;
+    const ended = e[4] && e[4] < now, price = ended ? e[3] : e[2];
+    rf.prices[k] = [price, e[3], 1e6, e[3] > price ? Math.round((1 - price / e[3]) * 100) : 0, e[5]];
+    gap.push(k);
+  };
+  Object.keys(gaps).forEach(id => {
+    const x = gaps[id];
+    if (own(id) || now - x[0] > 30 * 864e5) { delete gaps[id]; return; }   // the region's own list has it now, or too old
+    const eds = x[1] || [];
+    // no edition: not in this store under that id (older games can have another id there): left out, not "not sold"
+    if (!eds.length) return;
+    const games = eds.filter(e => PS_GAME_KINDS.test(e[6])), pool = games.length ? games : eds;
+    const best = pool.reduce((a, e) => e[3] < a[3] ? e : a, pool[0]);
+    put(id, [best[0], best[1], best[2], best[3], best[4], id]);   // (its store page: the concept's, concept/<id>)
+    eds.forEach(e => {
+      const k = usKeys.has(e[0]) ? e[0] : usByCode[e[1]];
+      if (k) put(k, e);
+    });
+  });
+  rf.gap = gap;
+  fs.writeFileSync(path.join(dir, gf), JSON.stringify({ updatedAt: new Date().toISOString(), p: gaps }));
+  fs.writeFileSync(path.join(dir, file), JSON.stringify(rf));
+  console.log("PlayStation " + code + " prices the lists missed: looked up " + order.length + " of " + want.length + " (" + found + " sold there, " + none + " not); " + gap.length + " prices merged");
 }
 
 // ---------- each region's price history ----------
@@ -197,10 +288,12 @@ const jobs = {
     Object.keys(__XBOX.PS_REGIONS).forEach(code => {
       let ok = false;
       try { ok = exportPsRegion_(code, Date.now()); } catch (e) { console.log(code + " failed: " + e.message); }
+      try { fillPsRegionGaps(code); } catch (e) { console.log(code + " gaps failed: " + e.message); }
       console.log("== " + code + (ok ? " done" : " NOT updated") + " (" + secs() + ")");
     });
     try { buildPsCompare(); } catch (e) { console.log("Compare failed: " + e.message); }
   },
+  psgaps() { fillPsRegionGaps(process.argv[3] || "UK"); },
   // the lighter morning run for new sales: US deals, home page and full game list
   psmorning() {
     exportPlayStation_({ maxLookups: 800 });
