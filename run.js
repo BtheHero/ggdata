@@ -151,7 +151,10 @@ function fillRegionGaps(code) {
 // store code, psCodeKey_). Kept in data/ps_gaps_<code>.json {p: {concept id: [checked ms, [[deal key, code key, price,
 // regular price, sale end ms, product id, kind], ...]]}} (no editions: not in that store under that id); merged into the
 // region's file (prices, and gap: the keys merged).
+// (Asian stores: more a run. Their editions have other names and product ids, so most of their prices come from here.
+// About 2 s per 100 lookups.)
 const PS_GAP_MAX = Number(process.env.PS_GAP_MAX) || 1500, PS_GAP_RECHECK_DAYS = 5;
+const PS_GAP_MAX_ASIA = Number(process.env.PS_GAP_MAX_ASIA) || 4500, PS_ASIA = new Set(["JP", "KR", "SG", "HK", "TW", "MY", "TH", "ID"]);
 const PS_GAME_KINDS = /^(FULL_GAME|GAME_BUNDLE|PREMIUM_EDITION|BUNDLE)$/;
 function fillPsRegionGaps(code) {
   const dir = rt.DATA_DIR, read = f => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch (e) { return null; } };
@@ -164,6 +167,7 @@ function fillPsRegionGaps(code) {
   const usKeys = new Set(), usByCode = {};
   sales.forEach(g => { if (g.key) { usKeys.add(g.key); const c = psCodeKey_(g.productId); if (c && !usByCode[c]) usByCode[c] = g.key; } });
   // what to look up: the US deals this region's file doesn't have (by their game's concept), then the full game list
+  const usLoose = psLooseMap_(usKeys);
   const dealCon = [], catCon = [], usByCon = {};
   sales.forEach(g => { const d = details[g.productId]; if (g.key && d && d.con) (usByCon[String(d.con)] = usByCon[String(d.con)] || [])
     .push({ key: g.key, kind: String(g.key).split("|")[1] || "", msrp: Number(g.msrp) || 0 }); });
@@ -175,7 +179,7 @@ function fillPsRegionGaps(code) {
   const want = Array.from(new Set(dealCon.concat(catCon)));
   const prio = id => { const x = gaps[id]; return !x ? 0 : saleEnded(x) ? 1 : now - x[0] > PS_GAP_RECHECK_DAYS * 864e5 ? 2 : 9; };
   const order = want.map((id, i) => [id, prio(id), i]).filter(x => x[1] < 9)
-    .sort((a, b) => a[1] - b[1] || (a[1] === 2 ? gaps[a[0]][0] - gaps[b[0]][0] : a[2] - b[2])).slice(0, PS_GAP_MAX).map(x => x[0]);
+    .sort((a, b) => a[1] - b[1] || (a[1] === 2 ? gaps[a[0]][0] - gaps[b[0]][0] : a[2] - b[2])).slice(0, PS_ASIA.has(code) ? PS_GAP_MAX_ASIA : PS_GAP_MAX).map(x => x[0]);
   let found = 0, none = 0;
   for (let i = 0; i < order.length; i += 40) {
     const chunk = order.slice(i, i + 40);
@@ -228,7 +232,7 @@ function fillPsRegionGaps(code) {
     put(id, [best[0], best[1], best[2], best[3], best[4], id]);   // (its store page: the concept's, concept/<id>)
     const used = new Set();
     eds.forEach(e => {
-      const k = usKeys.has(e[0]) ? e[0] : usByCode[e[1]];
+      const k = usKeys.has(e[0]) ? e[0] : usByCode[e[1]] || usLoose[psLooseKey_(e[0])];
       if (k) { put(k, e); used.add(e); }
     });
     // US deals of this game still without a price here (stores with names in their own language: "Dijital Deluxe
@@ -239,7 +243,15 @@ function fillPsRegionGaps(code) {
     Object.keys(kinds).forEach(kind => {
       const us = kinds[kind].sort((a, b) => a.msrp - b.msrp), here = eds.filter(e => e[6] === kind && !used.has(e)).sort((a, b) => a[3] - b[3]);
       if (us.length !== here.length) return;
-      us.forEach((g, n) => put(g.key, here[n]));
+      us.forEach((g, n) => { put(g.key, here[n]); used.add(here[n]); });
+    });
+    // still without one: the only edition here with the same name ("Mortal Kombat X PlayStation Hits", "DEAD OR ALIVE 5
+    // Last Round Full Game" sold as a bundle), the same platforms first
+    const nameOf = k => psLooseKey_(k).split("|")[0];
+    (usByCon[id] || []).filter(g => !own(g.key) && gap.indexOf(g.key) < 0).forEach(g => {
+      const free = eds.filter(e => !used.has(e)), same = free.filter(e => psLooseKey_(e[0]) === psLooseKey_(g.key));
+      const named = same.length ? same : free.filter(e => nameOf(e[0]) === nameOf(g.key));
+      if (named.length === 1) { put(g.key, named[0]); used.add(named[0]); }
     });
   });
   rf.gap = gap;

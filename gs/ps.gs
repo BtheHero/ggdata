@@ -64,6 +64,21 @@ const PS_REGIONS = {
 // title (psDealKey_). The region's own locale stays for its store links.
 const PS_EN = { TR: "en-TR", BR: "en-BR", AR: "en-AR" };
 function psQueryLocale_(code) { return PS_EN[code] || PS_REGIONS[code]; }
+// A deal key without the words some stores add to a name ("Battlefield 4 Full Game", "Watch Dogs 2 Digital", "Injustice 2
+// PlayStation Hits", "… English
+// Ver."): a second way to match a store's deal to the US one, used only when it names a single US deal (psLooseMap_).
+// (Language lists in brackets and "PS4 & PS5" are already left out of the key: cleanTitle_.)
+const PS_LOOSE = /(fullgame|playstationhits|digitalversion|digitaledition|digital|englishversion|englishver|chineseenglishversion|englishchineseversion|chineseversion|asiaversion|asianversion)+$/;
+function psLooseKey_(key) {
+  return String(key || "").replace(/^t:([^|]*)/, (m, n) => "t:" + (n.replace(PS_LOOSE, "") || n));
+}
+// {loose key: US deal key} for the loose keys only one US deal has
+function psLooseMap_(usKeys) {
+  const m = {};
+  usKeys.forEach(k => { const l = psLooseKey_(k); m[l] = l in m ? null : k; });
+  Object.keys(m).forEach(l => { if (!m[l]) delete m[l]; });
+  return m;
+}
 // Key that matches the same game edition across regions. Product ids differ per region (even the title id part),
 // so deals are matched on title + edition type + platforms. Concept ids are the same everywhere and are used as they are.
 // Titles with no Latin letters or digits (some Japanese/Korean ones) can't be matched and keep their own id.
@@ -937,9 +952,10 @@ function exportPsRegion_(code, startTime) {
   }
   // a deal here is filed under the US deal's key when they're the same edition: by store code, else by title
   // (titles fail in stores without English names: Spanish, German, Ukrainian…)
-  const usByCode = {};
-  (psReadJson_("PS_JSON_FILE_ID", { games: [] }).games || []).forEach(g => { const c = psCodeKey_(g.productId); if (c && g.key && !usByCode[c]) usByCode[c] = g.key; });
-  const keyOf = p => usByCode[psCodeKey_(p.id)] || psDealKey_(p);
+  const usByCode = {}, usAll = new Set();
+  (psReadJson_("PS_JSON_FILE_ID", { games: [] }).games || []).forEach(g => { if (g.key) usAll.add(g.key); const c = psCodeKey_(g.productId); if (c && g.key && !usByCode[c]) usByCode[c] = g.key; });
+  const usLoose = psLooseMap_(usAll);
+  const keyOf = p => { const k = psDealKey_(p); return usByCode[psCodeKey_(p.id)] || (usAll.has(k) ? k : usLoose[psLooseKey_(k)]) || k; };
   const prices = {}, sale = [];
   let rank = 0;
   deals.items.forEach(p => {
