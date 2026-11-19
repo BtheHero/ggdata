@@ -556,12 +556,12 @@ function gamePagesFor_(pre) {
         const to = was && was.a && games[was.a] && !games[was.a].a ? was.a : pid;   // another page's product: that page
         if (to !== pid && to === id) return;
         if (!was && !made[pid]) {
-          games[pid] = { t: e[3], p: g.p, i: g.i, q: g.q, pr: e[0] || 0, m: e[1] || e[0] || 0, c: g.c, s: g.s, ti: g.ti, r: g.r, g: g.g,
+          games[pid] = { t: psName_(e[3]), p: g.p, i: g.i, q: g.q, pr: e[0] || 0, m: e[1] || e[0] || 0, c: g.c, s: g.s, ti: g.ti, r: g.r, g: g.g,
                          d: g.d, ra: g.ra, mc: g.mc, pc: g.pc, h: hist[pid] || undefined, u: "https://store.playstation.com/en-us/product/" + pid };
           made[pid] = [id];
           if (g.cn || /^\d+$/.test(id)) games[pid].cn = g.cn || id;
         }
-        list.push([to, to === pid ? e[3] : games[to].t, art(to === pid && !made[pid] ? games[pid] : g), e[0] || 0, e[1] || 0]);
+        list.push([to, to === pid ? psName_(e[3]) : games[to].t, art(to === pid && !made[pid] ? games[pid] : g), e[0] || 0, e[1] || 0]);
       });
       delete g.pe;
       if (!list.length) return;
@@ -630,6 +630,13 @@ function gamePagesFor_(pre) {
     console.log((ps ? "PlayStation" : "Xbox") + " expansions and season passes on sale for the home page: " + big.length);
   } catch (e) { console.log("Popular add-ons row failed: " + e.message); }
 
+  // PlayStation: no "PS4 & PS5" after the names (psName_, gs/ps.gs), also on pages built from older saved names
+  if (ps) Object.keys(games).forEach(id => {
+    const g = games[id];
+    if (g.t) g.t = psName_(g.t);
+    if (g.ed) g.ed.forEach(r => { if (r[1]) r[1] = psName_(r[1]); });
+    if (g.ao && g.ao[1]) g.ao[1] = psName_(g.ao[1]);
+  });
   const shards = [];
   for (let n = 0; n < GAME_SHARDS; n++) shards.push({});
   Object.keys(games).forEach(id => { shards[shardOf_(id)][id] = games[id]; });
