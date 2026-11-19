@@ -207,7 +207,7 @@ function fillPsRegionGaps(code) {
     Utilities.sleep(200);
   }
   // merge: each concept's price (its cheapest edition at the regular price, like the US list), and the US deals' editions
-  const gap = [];
+  const gap = [], na = new Set();
   // sale end times (ms) of this store's deals, for the site to end each sale right then: the looked-up ones are exact
   const ends = {}, exact = {};
   const put = (k, e) => {
@@ -223,8 +223,9 @@ function fillPsRegionGaps(code) {
     const x = gaps[id];
     if (own(id) || now - x[0] > 30 * 864e5) { delete gaps[id]; return; }   // the region's own list has it now, or too old
     const eds = x[1] || [];
-    // no edition: not in this store under that id (older games can have another id there): left out, not "not sold"
-    if (!eds.length) return;
+    // no edition: this store doesn't sell the game (one it sells under another id has its price already: own(id),
+    // exportPsRegion_), nor the US deals of it: na, so the site says so instead of converting the US price
+    if (!eds.length) { na.add(id); (usByCon[id] || []).forEach(g => { if (!own(g.key)) na.add(g.key); }); return; }
     // the game's own editions: not another game sold on its page (Red Dead Redemption 2's also sells Red Dead Online)
     const ck = psGameKey_(titleOf[id]), named = eds.filter(e => ck.length >= 3 && e[7] && psGameKey_(e[7]).indexOf(ck) === 0);
     const games = (named.length ? named : eds).filter(e => PS_GAME_KINDS.test(e[6])), pool = games.length ? games : named.length ? named : eds;
@@ -255,6 +256,7 @@ function fillPsRegionGaps(code) {
     });
   });
   rf.gap = gap;
+  rf.na = Array.from(na).filter(k => !rf.prices[k]);   // games and US deals this store doesn't sell
   // The store's own deal list doesn't say when its sales end. The same sale ends at the same moment in every
   // region's own time zone: this store's offset from the US end time, learnt from the deals looked up above (the most
   // common difference), gives the end of its other deals that have the US deal's discount.
@@ -274,7 +276,7 @@ function fillPsRegionGaps(code) {
   console.log("PlayStation " + code + " sale ends: " + Object.keys(ends).length + " (" + guessed + " from the US end time, offset " + (shift === null ? "unknown" : shift / 36e5 + " h") + ")");
   fs.writeFileSync(path.join(dir, gf), JSON.stringify({ updatedAt: new Date().toISOString(), p: gaps }));
   fs.writeFileSync(path.join(dir, file), JSON.stringify(rf));
-  console.log("PlayStation " + code + " prices the lists missed: looked up " + order.length + " of " + want.length + " (" + found + " sold there, " + none + " not); " + gap.length + " prices merged");
+  console.log("PlayStation " + code + " prices the lists missed: looked up " + order.length + " of " + want.length + " (" + found + " sold there, " + none + " not); " + gap.length + " prices merged, " + rf.na.length + " not sold there");
 }
 
 // ---------- each region's price history ----------
