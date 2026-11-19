@@ -382,6 +382,19 @@ function siteScores_(ps) {
   } catch (e) { return null; }
 }
 
+// Two names of the same game ("Batman™: Arkham Knight Premium Edition" and "BATMAN™: ARKHAM KNIGHT"), by psGameKey_ (gs/ps.gs);
+// names that can't be compared (other scripts) count as the same
+function psSameGame_(a, b) {
+  const k = t => psGameKey_(cleanTitle_(t).replace(/\s&\s/g, " and "));
+  const ka = k(a), kb = k(b);
+  return ka.length < 3 || kb.length < 3 || ka.indexOf(kb) === 0 || kb.indexOf(ka) === 0;
+}
+// a bundle or collection that isn't the game it's sold with
+function psOtherGame_(g, title) {
+  const bundle = /BUNDLE/.test(String(g.key || "") + " " + String(g.kind || "")) ||
+    /\b(collection|bundle|trilogy|double pack|pack|series|anthology)\b|\s[+&]\s/i.test(cleanTitle_(g.title));
+  return bundle && !psSameGame_(g.title, title);
+}
 function gamePagesFor_(pre) {
   const ps = pre === "PS_";
   const cat = psReadJson_(pre + "CATALOG_FILE_ID", { games: [] }).games || [];
@@ -444,7 +457,9 @@ function gamePagesFor_(pre) {
   sales.forEach(g => {
     const id = g.productId;
     if (!id) return;
-    const target = games[id] && games[id].a ? games[id].a : id;
+    let target = games[id] && games[id].a ? games[id].a : id;
+    // a collection sold on one of its games' page (Batman: Arkham Collection on Arkham Knight's): a page of its own
+    if (ps && target !== id && games[target] && psOtherGame_(g, games[target].t)) { delete games[id]; target = id; }
     const e = games[target] || (games[target] = { t: g.title, p: g.publisher || "", i: g.image || "", c: g.currency || "USD", s: [], ti: [] });
     Object.assign(e, {
       pr: Number(g.price) || 0, m: Number(g.msrp) || Number(g.price) || 0, e: g.saleEnds || undefined, l: g.atLow ? 1 : undefined, ds: g.dealScore || undefined, lo: g.lowEver || undefined,

@@ -650,7 +650,7 @@ function crawl_(locale, startTime, onProduct) {
 // on sale there but not in the US sale list.
 function exportRegion_(code, chainStart) {
   const startTime = chainStart || Date.now();
-  const prices = {};
+  const prices = {}, ends = {};   // ends: {product id: sale end, ms} (the site ends each sale at that time)
   const sale = [];
   let currency = "", rank = 0;
 
@@ -663,6 +663,8 @@ function exportRegion_(code, chainStart) {
     prices[p.productId] = [price, msrp, ++rank, disc];
     currency = currency || offer.currency || "";
     if ((Number(offer.discountPercentage) || 0) > 0 || (msrp > 0 && price < msrp)) {
+      const end = Date.parse(xEndDate_(offer.endDateUtc) || "");
+      if (end) ends[p.productId] = end;
       sale.push({
         productId: p.productId,
         title: p.title || "",
@@ -691,7 +693,7 @@ function exportRegion_(code, chainStart) {
   try { enrichGames_(extra, startTime); } catch (e) { Logger.log("Enrich error: " + e.message); }
 
   const file = saveJsonToDrive_(
-    { updatedAt: new Date().toISOString(), region: code, currency: currency, prices: prices, extra: extra },
+    { updatedAt: new Date().toISOString(), region: code, currency: currency, prices: prices, ends: ends, extra: extra },
     "xbox_prices_" + code + ".json", "PRICES_" + code + "_FILE_ID"
   );
   Logger.log(code + " saved: " + file.getUrl());
