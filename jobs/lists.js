@@ -40,9 +40,13 @@ const ADDON = /^(add-?on|add-on pack|map|level|costume|vehicle|character|item|ep
 const NOT_GAME = /\b(add-?ons?|upgrade|season pass|dlc|expansion pass|soundtrack|currency|points|coins|credits|v-bucks|costume|skins?|bonus|demo|trial|beta|playtest|test server|bundle|pack)\b/i;
 const isGame = g => g && g.t && !g.a && !g.kd && !ADDON.test(String(g.kd || "")) && !NOT_GAME.test(g.t);
 const SUBS_X = ["eaplay", "ubisoft", "gtaplus"];
+// PlayStation deals: their key in the regions' price files (psDealKey_, the same edition in every store), so the site
+// prices each one in the region picked instead of converting the US price
+const DEAL_KEY = {};
+if (plat === "ps") ((read("ps_sales.json", { games: [] }).games) || []).forEach(g => { if (g.productId && g.key) DEAL_KEY[g.productId] = g.key; });
 // in the site's card shape (site.js card())
 const entry = (id, g) => ({
-  id, title: g.t, publisher: g.p || "", image: art(g.i), sq: art(g.q) || null,
+  id, key: DEAL_KEY[id], title: g.t, publisher: g.p || "", image: art(g.i), sq: art(g.q) || null,
   price: Number(g.pr) || 0, msrp: Number(g.m) || Number(g.pr) || 0, currency: g.c || "USD",
   release: relOf(g) > NOW ? g.r : null, released: g.r || null, mc: mcOf(g) || undefined,
   ra: g.ra ? g.ra[0] : undefined, rc: g.ra ? g.ra[1] : 0, genres: (g.g || []).slice(0, 3),
@@ -310,9 +314,14 @@ async function psPlus() {
   const out = { updatedAt: new Date().toISOString(), plat, year, bestYears, recent, upcoming, free, meta, publishers, acclaimed: acclaimed() };
   if (PS) out.psplus = await psPlus();
   write(plat + "_lists.json", out);
-  // the home page's row: the same games, soonest first (it replaces the "Most wanted" row)
+  // the home page's row: the same games, soonest first (it replaces the "Most wanted" row). Xbox only: PlayStation's home
+  // page has no "From acclaimed publishers" row (the list page keeps it)
   const h = read(homeFile, null);
-  if (h && h.sections) { h.sections.acclaimed = out.acclaimed.games.slice(0, 20); h.sections.acclaimedBy = out.acclaimed.by; delete h.sections.wanted; delete h.sections.wantedSrc; write(homeFile, h); }
+  if (h && h.sections) {
+    if (PS) { delete h.sections.acclaimed; delete h.sections.acclaimedBy; }
+    else { h.sections.acclaimed = out.acclaimed.games.slice(0, 20); h.sections.acclaimedBy = out.acclaimed.by; }
+    delete h.sections.wanted; delete h.sections.wantedSrc; write(homeFile, h);
+  }
   console.log("Lists (" + plat + "): recent " + recent.length + ", upcoming " + upcoming.length + ", free " + free.length + ", Metacritic " + meta.length +
     ", publishers " + publishers.length + ", best of " + years.join("/") + ", acclaimed " + out.acclaimed.by + "s' upcoming games " + out.acclaimed.games.length + " (top: " + out.acclaimed.studios.slice(0, 8).map(s => s.name).join(", ") + ")" +
     (PS ? ", PS Plus added " + out.psplus.added.length + ", coming " + out.psplus.coming.length : "") + ", publisher rows " + pubsale.map(p => p.name + " " + p.n).join(", "));

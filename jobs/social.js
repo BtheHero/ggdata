@@ -4,6 +4,10 @@
 //                                       discount, a high Metascore, many store ratings), each game once every REPOST_DAYS,
 //                                       at most SOCIAL_MAX_DEALS a run
 //   node jobs/social.js weekly          once a week: the week's 5 best deals on Xbox and on PlayStation (data/weekly/…)
+//   node jobs/social.js next            every hour: posts the next waiting post, if the last one is far enough behind
+//
+// The first two don't post: they queue (see "the queue" below), so posts go out one at a time through the day instead
+// of several back to back. SOCIAL_NOW=1 posts right away instead (the weekly roundup's manual runs).
 //
 // What was posted is kept in data/social/<xbox|ps|weekly>-posted.json (uploaded with the other files), so a deal isn't
 // posted again on the next run. One file per job, so the Xbox and PlayStation runs can't overwrite each other's.
@@ -84,8 +88,8 @@ const wide = (u, w) => u ? "https://wsrv.nl/?url=" + encodeURIComponent(u) + "&w
 // the weekly roundup's own pictures (jobs/social-card.js): a tall one (Instagram, Pinterest) and a wide one (Bluesky, Facebook)
 const cardOf = (plat, week) => {
   const c = {};
-  ["tall", "wide"].forEach(shape => { const name = plat + "-" + week + "-" + shape + ".jpg", file = path.join(DATA, "social", "img", name);
-    if (fs.existsSync(file)) c[shape] = { file, url: SITE + "/social-img/" + name }; });
+  ["tall", "wide"].forEach(shape => { const name = plat + "-" + week + "-" + shape + ".jpg", file = "social/img/" + name;   // file: in data/
+    if (fs.existsSync(path.join(DATA, file))) c[shape] = { file, url: SITE + "/social-img/" + name }; });
   return c.tall || c.wide ? c : null;
 };
 const pic = (p, w, shape) => {
@@ -150,7 +154,7 @@ function dealPosts(plat) {
       const head = "🔥 " + g.title + ": " + pct + "% off on " + PLAT[plat].name;
       const line = [money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")" + (g.atLow ? " · lowest price ever" : ""), endsLine(g.saleEnds)].filter(Boolean).join("\n");
       return { key: g.productId, title: g.title + " – " + pct + "% off (" + PLAT[plat].name + ")", head, line,
-        url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags };
+        url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags, ends: g.saleEnds || "" };
     }),
     remember: keys => { picked.filter(g => keys.includes(g.productId)).forEach(g => { posted[g.productId] = posted["t:" + gameKey(g.title)] = today(); });
       Object.keys(posted).forEach(k => { if (posted[k] < cutoff) delete posted[k]; });
@@ -208,9 +212,10 @@ const NETWORKS = {
       const external = { uri: withUtm(p.url, "bluesky"), title: p.title, description: "Price history, deal score and where to play on GameDealTrack" };
       if (p.card || p.image) {
         try {
-          const card = p.card && (p.card.wide || p.card.tall);   // the roundup's picture: from the file, it's made in this run
-          const img = card ? null : await fetch(pic(p, 1200, "wide"));
-          const bytes = card ? fs.readFileSync(card.file) : img.ok ? Buffer.from(await img.arrayBuffer()) : null;
+          // the roundup's picture: from its file when this run has it (data/social/img), else from the site
+          const card = p.card && (p.card.wide || p.card.tall), local = card && path.join(DATA, card.file);
+          const img = local && fs.existsSync(local) ? null : await fetch(card ? card.url : pic(p, 1200, "wide"));
+          const bytes = img ? (img.ok ? Buffer.from(await img.arrayBuffer()) : null) : fs.readFileSync(local);
           if (bytes) {
             const blob = await ok(await fetch(host + "/xrpc/com.atproto.repo.uploadBlob", { method: "POST",
               headers: Object.assign({ "content-type": "image/jpeg" }, auth), body: bytes }), "Bluesky image");
@@ -345,33 +350,92 @@ async function viaX(text) {
       return r.data && r.data.id;
 }
 
+
+// ---------- the queue: one post at a time, spread over the day ----------
+// The store runs and the weekly roundup don't post: they add their posts to data/social/<xbox|ps|weekly>-queue.json
+// (each file written by its own job only), and `node jobs/social.js next` (.github/workflows/social-queue.yml, every hour)
+// posts the next one when the last post is far enough behind. What it sent is in data/social/sent.json (its own file).
+//   SOCIAL_HOURS     the hours (UTC) posts go out, "13-3": 13:00 to 2:59 UTC = 8 AM to 10 PM Eastern
+//   SOCIAL_MIN_GAP   minutes at least between two posts (default 100); with fewer posts waiting, they're spread over
+//                    what's left of the day's hours, up to SOCIAL_MAX_GAP (default 240)
+//   SOCIAL_KEEP_HOURS  a post still waiting after this many hours is dropped (default 24): the deal is old news by then
+const QUEUES = ["weekly", "xbox", "ps"];   // the weekly roundup first
+const [H_FROM, H_TO] = String(env.SOCIAL_HOURS || "13-3").split("-").map(Number);
+const MIN_GAP = Number(env.SOCIAL_MIN_GAP || 100), MAX_GAP = Number(env.SOCIAL_MAX_GAP || 240);
+const KEEP_MS = Number(env.SOCIAL_KEEP_HOURS || 24) * 3600e3;
+// minutes left today in the posting hours (0 outside them); the hours can run past midnight UTC (13-3)
+function minutesLeft(now) {
+  const h = now.getUTCHours(), m = h * 60 + now.getUTCMinutes(), from = H_FROM * 60, to = H_TO * 60;
+  if (from < to) return m >= from && m < to ? to - m : 0;
+  return m >= from ? 1440 - m + to : m < to ? to - m : 0;
+}
+const stale = it => Date.now() - Date.parse(it.queuedAt) > KEEP_MS || (it.ends && Date.parse(it.ends) <= Date.now() + 3 * 3600e3);
+function enqueue(name, posts) {
+  const sent = read("social/sent.json", { sent: {} }).sent || {}, file = "social/" + name + "-queue.json";
+  const items = (read(file, { items: [] }).items || []).filter(it => !sent[it.id] && !stale(it));
+  const at = new Date().toISOString();
+  posts.forEach(p => { if (!items.some(it => it.key === p.key)) items.push(Object.assign({}, p, { id: name + ":" + p.key + ":" + at, plat: name, queuedAt: at })); });
+  write(file, { items });
+  console.log("Queued " + posts.length + "; " + items.length + " waiting in " + file);
+}
+async function postNow(p, nets) {
+  let any = false;
+  for (const n of nets) {
+    try { console.log("  " + n + ": " + p.title + " → " + await NETWORKS[n].post(p)); any = true; }
+    catch (e) { console.log("  " + n + " failed: " + p.title + ": " + e.message); }
+  }
+  return any;
+}
+async function next(nets) {
+  const log = read("social/sent.json", { sent: {} }), sent = log.sent || (log.sent = {}), now = new Date();
+  const waiting = [];
+  QUEUES.forEach(q => (read("social/" + q + "-queue.json", { items: [] }).items || []).forEach(it => { if (!sent[it.id] && !stale(it)) waiting.push(it); }));
+  const left = minutesLeft(now), since = log.last ? (now - Date.parse(log.last)) / 60000 : Infinity;
+  const gap = Math.min(MAX_GAP, Math.max(MIN_GAP, waiting.length ? left / waiting.length : MAX_GAP));
+  console.log("Social queue: " + waiting.length + " waiting; " + (left ? left + " min of posting hours left today" : "outside the posting hours (" + H_FROM + "-" + H_TO + " UTC)") +
+              "; last post " + (log.last ? Math.round(since) + " min ago" : "never") + "; gap now " + Math.round(gap) + " min");
+  if (!waiting.length || !left || since < gap) return;
+  // the weekly roundup first, then the oldest; the other store than the last post's when one is waiting
+  const order = it => QUEUES.indexOf(it.plat);
+  waiting.sort((a, b) => (order(a) === 0 ? 0 : 1) - (order(b) === 0 ? 0 : 1) || a.queuedAt.localeCompare(b.queuedAt));
+  const p = waiting.find(it => it.plat === "weekly") || waiting.find(it => it.plat !== log.lastPlat) || waiting[0];
+  if (DRY) { console.log("\n" + p.head + "\n" + p.line + "\n" + p.url + " (dry run: not sent)"); return; }
+  const any = await postNow(p, nets);
+  sent[p.id] = now.toISOString();
+  if (any) { log.last = now.toISOString(); log.lastPlat = p.plat; }   // all networks failed: the next one may go at the next run
+  Object.keys(sent).forEach(k => { if (Date.parse(sent[k]) < Date.now() - 7 * 864e5) delete sent[k]; });
+  write("social/sent.json", log);
+  console.log(any ? "Posted: " + p.title : "Not posted anywhere: " + p.title);
+}
+
 // ---------- run ----------
 
 (async () => {
   const [mode, plat] = process.argv.slice(2);
-  if (!(mode === "weekly" || (mode === "deals" && PLAT[plat]))) { console.log("usage: node jobs/social.js deals xbox|ps | weekly"); process.exit(1); }
-  const job = mode === "weekly" ? weeklyPosts() : dealPosts(plat);
+  if (!(mode === "weekly" || mode === "next" || (mode === "deals" && PLAT[plat]))) { console.log("usage: node jobs/social.js deals xbox|ps | weekly | next"); process.exit(1); }
   const only = (env.SOCIAL_ONLY || "").toLowerCase().split(/[\s,]+/).filter(Boolean);   // a manual test on some networks only
   const nets = Object.keys(NETWORKS).filter(n => NETWORKS[n].ready() && (!only.length || only.includes(n)));
-  console.log("Social " + mode + (plat ? " " + plat : "") + ": " + job.posts.length + " to post" +
+  if (nets.includes("facebook") || nets.includes("instagram"))   // what the Meta secrets look like, without showing them
+    console.log("FB_PAGE_TOKEN: " + shape(env.FB_PAGE_TOKEN) + "; FB_PAGE_ID: " + (/^\d+$/.test(env.FB_PAGE_ID || "") ? "a number (good)" : "not a number") +
+                "; IG_USER_ID: " + (!env.IG_USER_ID ? "not set" : /^\d+$/.test(env.IG_USER_ID) ? "a number (good)" : "not a number"));
+  if (mode === "next") return next(nets);
+  const job = mode === "weekly" ? weeklyPosts() : dealPosts(plat);
+  // SOCIAL_NOW=1 (a manual run): post right away instead of queueing
+  const now = env.SOCIAL_NOW === "1";
+  console.log("Social " + mode + (plat ? " " + plat : "") + ": " + job.posts.length + " to " + (now ? "post" : "queue") +
               (DRY ? " (dry run)" : "") + "; networks: " + (nets.join(", ") || "none set up"));
   if (!job.posts.length) return;
   if (DRY || !nets.length) {
     job.posts.forEach(p => console.log("\n" + p.head + "\n" + p.line + "\n" + p.url + "\n  image: " + (p.card || p.image || p.hero ? pic(p, 1200, "wide") + (p.card && p.card.tall ? "  and  " + p.card.tall.url : "") : "none")));
     return;
   }
-  if (nets.includes("facebook") || nets.includes("instagram"))   // what the Meta secrets look like, without showing them
-    console.log("FB_PAGE_TOKEN: " + shape(env.FB_PAGE_TOKEN) + "; FB_PAGE_ID: " + (/^\d+$/.test(env.FB_PAGE_ID || "") ? "a number (good)" : "not a number") +
-                "; IG_USER_ID: " + (!env.IG_USER_ID ? "not set" : /^\d+$/.test(env.IG_USER_ID) ? "a number (good)" : "not a number"));
-  const done = [];
-  for (const p of job.posts) {
-    let any = false;
-    for (const n of nets) {
-      try { console.log("  " + n + ": " + p.title + " → " + await NETWORKS[n].post(p)); any = true; }
-      catch (e) { console.log("  " + n + " failed: " + p.title + ": " + e.message); }
-    }
-    if (any) done.push(p.key);   // posted somewhere: don't post it again (a failed network just misses it)
+  if (!now) {   // queued: it counts as posted, so the next run doesn't pick it again
+    enqueue(mode === "weekly" ? "weekly" : plat, job.posts);
+    job.remember(job.posts.map(p => p.key));
+    return;
   }
+  const done = [];
+  for (const p of job.posts) if (await postNow(p, nets)) done.push(p.key);   // posted somewhere: don't post it again
   job.remember(done);
   console.log("Posted " + done.length + " of " + job.posts.length);
 })().catch(e => { console.error(e); process.exit(0); });   // never fail the store run over a post

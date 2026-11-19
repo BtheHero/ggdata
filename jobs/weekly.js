@@ -40,7 +40,7 @@ const today = sales.filter(g => {
   return g.productId && g.title && g.dealScore && price > 0 && msrp > price && (1 - price / msrp) * 100 >= MIN_PCT &&
     !ADDON.test(String(g.kind || "").trim()) && !ADDON_TITLE.test(g.title) && !(g.saleEnds && Date.parse(g.saleEnds) <= Date.now());
 }).map(g => ({
-  id: g.productId, title: g.title, publisher: g.publisher || "", image: g.image || "", sq: g.sq || null,
+  id: g.productId, key: g.key || undefined, title: g.title, publisher: g.publisher || "", image: g.image || "", sq: g.sq || null,
   price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD", ds: g.dealScore, low: !!g.atLow,
   ends: g.saleEnds || null, mc: mcOf(g.productId), genres: (g.genres || []).slice(0, 3), seen: new Date().toISOString().slice(0, 10),
   subs: g.subs || [], tiers: g.tiers || [], pc: !!g.pc
@@ -73,7 +73,7 @@ const home = read(plat + "_home.json", null);
 if (home && home.sections) {
   const SUB = plat === "ps" ? "psplus" : "gamepass";
   home.sections.weekly = picked.filter(g => !(g.ends && Date.parse(g.ends) <= Date.now()) && today.some(t => t.id === g.id)).slice(0, 15).map(g => ({
-    id: g.id, title: g.title, publisher: g.publisher, image: g.image, sq: g.sq, price: g.price, msrp: g.msrp, currency: g.currency,
+    id: g.id, key: g.key || (today.find(t => t.id === g.id) || {}).key, title: g.title, publisher: g.publisher, image: g.image, sq: g.sq, price: g.price, msrp: g.msrp, currency: g.currency,
     gp: (g.subs || []).indexOf(SUB) >= 0, xs: (g.subs || []).filter(x => x !== SUB && x !== "gamepass" && x !== "psplus"), tiers: g.tiers || [],
     low: g.low, ds: g.ds, ends: g.ends, pc: !!g.pc, genres: g.genres || [], release: null, date: null
   }));
