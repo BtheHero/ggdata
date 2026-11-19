@@ -82,9 +82,11 @@ function psLooseMap_(usKeys) {
 // A name without the "PS4 & PS5" the store adds to games sold for both ("Resident Evil 4 Gold Edition PS4 & PS5",
 // "Trash Raccoon PS4® & PS5®", "… (PS4™ & PS5™)", "… for PS4 and PS5"): the same game either way. One platform alone
 // ("(PS5)", "for PS4") stays: it can tell two products apart.
-const PS_BOTH = /\s*[-–:|,]?\s*\(?\s*(?:for\s+)?(?:PS4[™®]?\s*(?:&|＆|and|\/|\+)\s*PS5[™®]?|PS5[™®]?\s*(?:&|＆|and|\/|\+)\s*PS4[™®]?)\s*\)?\s*$/i;
+// (also in brackets, "[PS4 & PS5]", "（PS5 & PS4）", and inside the name: "Turbo Overkill PS4 & PS5 Ultimate Edition")
+const PS_BOTH = /\s*[\[(（]?\s*(?:for\s+)?(?:PS4[™®]?\s*(?:&|＆|and|\/|\+)\s*PS5[™®]?|PS5[™®]?\s*(?:&|＆|and|\/|\+)\s*PS4[™®]?)\s*[\])）]?/gi;
 function psName_(name) {
-  const s = String(name || "").trim(), t = s.replace(PS_BOTH, "").trim();
+  const s = String(name || "").trim();
+  const t = s.replace(PS_BOTH, " ").replace(/\s{2,}/g, " ").replace(/\s+([-–:|,])\s*$/, "").replace(/^\s*[-–:|,]\s*/, "").replace(/\s+([-–])\s+[-–]\s+/g, " $1 ").trim();
   return t.length >= 2 ? t : s;
 }
 // Key that matches the same game edition across regions. Product ids differ per region (even the title id part),
@@ -401,7 +403,7 @@ function psMainProduct_(c, cache) {
   // the product named exactly like the game first: "The Last of Us Part II" (PS4) over "The Last of Us Part II
   // Remastered" (PS5), another game sold on the same store page; then one whose name starts with the game's
   // (of those, the one without an edition's name: "Resident Evil 4" over "Resident Evil 4 Gold Edition"; demos aside)
-  const named = ids.filter(id => key(id) === ck && !PS_DEMO.test(ep[id][3]));
+  const named = ids.filter(id => key(id) === ck && !PS_DEMO.test(ep[id][3]) && !psElsewhere_(c, ep[id][3]));
   return named.find(id => !PS_EDNAME.test(ep[id][3])) || named[0] || ids.find(id => key(id).indexOf(ck) === 0) || ids[0] || null;
 }
 // A store page selling a PS4 game and another version of it for PS5 under its own name (The Last of Us Part II and The
@@ -440,16 +442,28 @@ const PS_DEMO = /\b(demo|trial|beta|playtest)\b/i;
 const PS_EDNAME = /\b(edition|bundle|collection|pack|trilogy|anthology|deluxe|gold|ultimate|premium|complete|definitive)\b/i;
 // A store page named after a bundle of the game (Resident Evil 3's is "RACCOON CITY EDITION", which also sells RESIDENT
 // EVIL 3): the game is the one product with another name (demos aside). Returns its product id, or null.
+// Only for a page named "… Edition" (a collection, bundle or pack holds several games), and only when the game has no
+// store page of its own (PS_CONKEYS: every store page's game key, from the full game list): the Planet of Lana
+// Collection's page also sells Planet of Lana II, which has its own page.
+let PS_CONKEYS = null;
+// a store page's full name as a key (psGameKey_ stops at " - " and "(": too coarse to tell games apart here)
+function psFullKey_(name) { return norm_(cleanTitle_(psName_(name))); }
+// a product that is a game with a store page of its own, other than this page (c)
+function psElsewhere_(c, name) {
+  if (!PS_CONKEYS || !name) return false;
+  const k = psFullKey_(name), o = PS_CONKEYS.get(k);
+  return !!o && o !== String(c && c.id) && k !== psFullKey_(c && c.name);
+}
 function psRealGame_(c, cache) {
   const name = String((c && c.name) || ""), ep = (cache && cache.eprice) || {};
-  if (!/\b(edition|bundle|collection|pack|trilogy)\b/i.test(name)) return null;
+  if (!PS_CONKEYS || !/\bedition\b/i.test(name) || /\b(collection|bundle|pack|trilogy|anthology)\b/i.test(name)) return null;
   const ck = psGameKey_(name), key = id => ep[id] && ep[id][3] ? psGameKey_(ep[id][3]) : "";
   const ids = psConceptIds_(c).filter(id => ep[id] && ep[id][3] && ep[id][1] !== null && !PS_DEMO.test(ep[id][3]));
   // (only the bundle has the page's name: Resident Evil 4's page, "… Gold Edition", also sells "Resident Evil 4")
   if (ck.length < 3 || ids.filter(id => key(id) === ck).length !== 1) return null;
   // (another bundle on the page isn't the game: Resident Evil 4's also sells the Remake Trilogy)
   const others = ids.filter(id => key(id).length >= 3 && key(id) !== ck && key(id).indexOf(ck) !== 0 && !PS_EDNAME.test(ep[id][3]));
-  return others.length === 1 ? others[0] : null;
+  return others.length === 1 && !psElsewhere_(c, ep[others[0]][3]) ? others[0] : null;
 }
 function psConceptPrice_(c, cache) {
   let price = psPrice_(c.price && c.price.discountedPrice), base = psPrice_(c.price && c.price.basePrice);
@@ -473,7 +487,11 @@ function psConceptPrice_(c, cache) {
     // another game sold on the same page (Red Dead Redemption 2's page also sells Red Dead Online, $19.99): only the
     // products named like the game count, when its name can be compared (names in other scripts can't: all count then)
     const ck = psGameKey_(c && c.name), named = id => ep[id] && ep[id][3] && psGameKey_(ep[id][3]).indexOf(ck) === 0;
-    const mine = ck.length >= 3 && ids.some(named) ? ids.filter(named) : ids;
+    // (nor a game with a store page of its own whose name starts like this one: "Darkness Rollercoaster - Temple of
+    // Speed" on the "DARKNESS ROLLERCOASTER - Ultimate Shooter Edition" page)
+    const elsewhere = id => !!(ep[id] && psElsewhere_(c, ep[id][3]));
+    const mine0 = ck.length >= 3 && ids.some(named) ? ids.filter(named) : ids, mine1 = mine0.filter(id => !elsewhere(id));
+    const mine = mine1.length ? mine1 : mine0;
     mine.forEach(id => {
       const e = ep[id];
       if (e && e[0] !== null && e[1] !== null && (e[1] > 0 || free) && !notEdition(e) && (!std || e[1] < std[1] || (e[1] === std[1] && e[0] < std[0]))) std = e;
@@ -962,6 +980,9 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
     Logger.log("PlayStation catalog incomplete (" + all.items.length + " games), keeping the previous one");
     return;
   }
+  // each store page's game key (psRealGame_: a game with a store page of its own isn't taken from another page)
+  PS_CONKEYS = new Map();
+  all.items.forEach(c => { const k = c && c.id && psFullKey_(c.name); if (k && !PS_CONKEYS.has(k)) PS_CONKEYS.set(k, String(c.id)); });
   // cheapest edition for the most popular multi-edition games (the rest keep the store's price)
   if (cache) psEditionPrices_(all.items, cache, (t0 || Date.now()) + 8 * 60 * 1000, 5000);   // every game sold in several editions
   const rows = [], franchise = [];   // [row index, product id] of franchise pages (psFranchiseArt_)
