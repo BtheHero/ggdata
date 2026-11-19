@@ -396,6 +396,8 @@ function psGameKey_(name) {
 // can be another game sold on the same page (Batman: Arkham Knight's page lists Batman: Arkham Collection first)
 function psMainProduct_(c, cache) {
   const ids = psConceptIds_(c), ep = (cache && cache.eprice) || {}, ck = psGameKey_(c && c.name);
+  const fg = c && PS_FULLGAME[String(c.id)];
+  if (fg && ids.indexOf(fg) >= 0) return fg;
   const real = psRealGame_(c, cache);
   if (real) return real;
   if (ck.length < 3) return ids[0] || null;
@@ -433,6 +435,44 @@ function psTagPs4Deals_(ps4) {
   }
   Logger.log("PlayStation PS4 games sold next to a PS5 version: " + Object.keys(ps4).length + " named (PS4), " + n + " deals, " + h + " home cards");
 }
+// The name the full game list gives a store page (the rules above, on the products' names)
+function psTitleOf_(c, cache) {
+  const cp = psConceptPrice_(c, cache), pid = psMainProduct_(c, cache);
+  const mn = !cp.title && pid && cache && cache.eprice && cache.eprice[pid] && cache.eprice[pid][3];
+  const named = mn && PS_EDNAME.test(c.name || "") && !PS_EDNAME.test(mn) && psGameKey_(mn) === psGameKey_(c.name) ? String(mn).trim() : "";
+  return psName_(cp.title || named || c.name);
+}
+// Store pages the rules above would give another name than the store's (a page named after a bundle or edition): the
+// store says which product is the game (FULL_GAME), one request per page. When it sells one full game, that's the page's
+// name, price and main product (Yuppie Psycho: Executive Edition is the game, Lament of the Yuppie a bundle; Planet of
+// Lana II is the game of the page called "Planet of Lana Collection"). Otherwise the rules above stand.
+function psFullGames_(list, cache) {
+  PS_FULLGAME = {};
+  if (!list.length) return;
+  cache.eprice = cache.eprice || {};
+  const today = psDay_(Date.now());
+  let found = 0;
+  for (let i = 0; i < list.length; i += 40) {
+    const chunk = list.slice(i, i + 40);
+    let res = [];
+    try { res = UrlFetchApp.fetchAll(chunk.map(c => psRequest_("metGetPricingDataByConceptId", { conceptId: String(c.id) }, "en-US"))); }
+    catch (e) { Logger.log("PlayStation full-game check failed: " + e.message); return; }
+    chunk.forEach((c, k) => {
+      let d = null;
+      try { const r = res[k]; if (r && r.getResponseCode() === 200) d = JSON.parse(r.getContentText()).data; } catch (e) {}
+      const prods = ((((d || {}).conceptRetrieve || {}).selectableProducts || {}).purchasableProducts) || [];
+      const full = prods.filter(p => p && p.id && p.storeDisplayClassification === "FULL_GAME" && !PS_DEMO.test(p.name || ""));
+      if (full.length !== 1) return;
+      const p = full[0], pr = p.price || {}, base = psPrice_(pr.basePrice), disc = psPrice_(pr.discountedPrice);
+      const price = disc === null || pr.isTiedToSubscription || pr.isExclusive ? base : disc;
+      if (price === null) return;
+      cache.eprice[p.id] = [price, base === null ? price : base, today, String(p.name || "")];
+      PS_FULLGAME[String(c.id)] = p.id;
+      found++;
+    });
+  }
+  Logger.log("PlayStation store pages checked for their full game: " + list.length + ", " + found + " named by it");
+}
 // Games whose US price is an edition other than the store's own price for the game (GTA VI: Standard, not the
 // Ultimate the store shows): the regions look their editions up too (exportPsRegion_), so they compare the same edition
 let PS_EPICK = {};
@@ -446,6 +486,8 @@ const PS_EDNAME = /\b(edition|bundle|collection|pack|trilogy|anthology|deluxe|go
 // store page of its own (PS_CONKEYS: every store page's game key, from the full game list): the Planet of Lana
 // Collection's page also sells Planet of Lana II, which has its own page.
 let PS_CONKEYS = null;
+// store pages whose game the store itself names (psFullGames_): {store page id: the one FULL_GAME product's id}
+let PS_FULLGAME = {};
 // a store page's full name as a key (psGameKey_ stops at " - " and "(": too coarse to tell games apart here)
 function psFullKey_(name) { return norm_(cleanTitle_(psName_(name))); }
 // a product that is a game with a store page of its own, other than this page (c)
@@ -468,6 +510,12 @@ function psRealGame_(c, cache) {
 function psConceptPrice_(c, cache) {
   let price = psPrice_(c.price && c.price.discountedPrice), base = psPrice_(c.price && c.price.basePrice);
   const ids = psConceptIds_(c), ep = (cache && cache.eprice) || {};
+  // the store's own word on which product is the game (psFullGames_)
+  const fg = c && PS_FULLGAME[String(c.id)];
+  if (fg && ep[fg] && ep[fg][0] !== null && ep[fg][0] !== undefined) {
+    if (ep[fg][0] !== price || ep[fg][1] !== base) PS_EPICK[String(c.id)] = 1;
+    return { price: ep[fg][0], base: ep[fg][1] === null ? ep[fg][0] : ep[fg][1], title: psName_(ep[fg][3]), game: fg };
+  }
   const real = psRealGame_(c, cache);
   if (real) {
     const e = ep[real];
@@ -985,6 +1033,8 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
   all.items.forEach(c => { const k = c && c.id && psFullKey_(c.name); if (k && !PS_CONKEYS.has(k)) PS_CONKEYS.set(k, String(c.id)); });
   // cheapest edition for the most popular multi-edition games (the rest keep the store's price)
   if (cache) psEditionPrices_(all.items, cache, (t0 || Date.now()) + 8 * 60 * 1000, 5000);   // every game sold in several editions
+  // store pages the rules would rename: the store's own word on which product is the game
+  if (cache) psFullGames_(all.items.filter(c => c && c.id && c.price && psConceptIds_(c).length > 1 && norm_(psTitleOf_(c, cache)) !== norm_(psName_(c.name))), cache);
   const rows = [], franchise = [];   // [row index, product id] of franchise pages (psFranchiseArt_)
   const ps4 = {};   // main products named "… (PS4)" (psPs4Tag_)
   all.items.forEach((c, i) => {
