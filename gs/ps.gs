@@ -79,6 +79,14 @@ function psLooseMap_(usKeys) {
   Object.keys(m).forEach(l => { if (!m[l]) delete m[l]; });
   return m;
 }
+// A name without the "PS4 & PS5" the store adds to games sold for both ("Resident Evil 4 Gold Edition PS4 & PS5",
+// "Trash Raccoon PS4® & PS5®", "… (PS4™ & PS5™)", "… for PS4 and PS5"): the same game either way. One platform alone
+// ("(PS5)", "for PS4") stays: it can tell two products apart.
+const PS_BOTH = /\s*[-–:|,]?\s*\(?\s*(?:for\s+)?(?:PS4[™®]?\s*(?:&|＆|and|\/|\+)\s*PS5[™®]?|PS5[™®]?\s*(?:&|＆|and|\/|\+)\s*PS4[™®]?)\s*\)?\s*$/i;
+function psName_(name) {
+  const s = String(name || "").trim(), t = s.replace(PS_BOTH, "").trim();
+  return t.length >= 2 ? t : s;
+}
 // Key that matches the same game edition across regions. Product ids differ per region (even the title id part),
 // so deals are matched on title + edition type + platforms. Concept ids are the same everywhere and are used as they are.
 // Titles with no Latin letters or digits (some Japanese/Korean ones) can't be matched and keep their own id.
@@ -450,12 +458,12 @@ function psConceptPrice_(c, cache) {
   if (real) {
     const e = ep[real];
     if (c && c.id && (e[0] !== price || e[1] !== base)) PS_EPICK[String(c.id)] = 1;
-    return { price: e[0], base: e[1], title: String(e[3]).trim(), game: real };
+    return { price: e[0], base: e[1], title: psName_(e[3]), game: real };
   }
   const games = new Set(ids.map(id => ep[id] && ep[id][3] && !PS_DEMO.test(ep[id][3]) ? psGameKey_(ep[id][3]) : "").filter(Boolean));
   const first = ep[ids[0]];
   if (games.size >= 3 && first && first[0] !== null && first[3]) {
-    return { price: first[0], base: first[1], title: String(first[3]).replace(/\s+[-–]\s+(standard edition|cross-gen bundle)$/i, "") };
+    return { price: first[0], base: first[1], title: psName_(String(first[3]).replace(/\s+[-–]\s+(standard edition|cross-gen bundle)$/i, "")) };
   }
   if (ids.length > 1) {
     let std = null;
@@ -529,7 +537,7 @@ function exportPlayStation_(opts) {
     if (base === null || price === null || !(price < base) || p.price.isTiedToSubscription || p.price.isExclusive) { skipped++; return; }
     games.push({
       productId: p.id, key: psDealKey_(p), rank: i + 1, pc: false,
-      title: p.name || "", publisher: null, kind: p.localizedStoreDisplayClassification || "",
+      title: psName_(p.name), publisher: null, kind: p.localizedStoreDisplayClassification || "",
       platforms: p.platforms || [],
       msrp: base, price: price, discountPercent: Math.round((1 - price / base) * 100),
       currency: "USD", image: psImage_(p.media), sq: psSquare_(p.media), url: PS_STORE + "product/" + p.id,
@@ -859,7 +867,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
     const rel = d.rel || null, tiers = psFixTrial_(psTiers_(c.price, psConceptIds_(c)), c.id, trials || {}), subs = psSubs_(tiers);
     const fa = cp.title && pid ? psFranchiseArt_([pid])[pid] : null;   // a franchise page: its game's own art
     return {
-      id: String(c.id), pid: pid || "", title: cp.title || c.name || "", publisher: d.pub || "",
+      id: String(c.id), pid: pid || "", title: psName_(cp.title || c.name), publisher: d.pub || "",
       image: (fa && fa.image) || psImage_(c.media), sq: (fa && fa.sq) || psSquare_(c.media), wide: fa ? null : psWide_(c.media),
       price: price || 0, msrp: base || price || 0, currency: "USD", date: rel,
       ra: star(pid) ? star(pid)[0] : null, rc: star(pid) ? star(pid)[1] : 0,
@@ -970,7 +978,7 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
     // a store page named after an edition ("Resident Evil 4 Gold Edition PS4 & PS5"): the game's own name
     const mn = !cp.title && pid && cache && cache.eprice && cache.eprice[pid] && cache.eprice[pid][3];
     const named = mn && PS_EDNAME.test(c.name || "") && !PS_EDNAME.test(mn) && psGameKey_(mn) === psGameKey_(c.name) ? String(mn).trim() : "";
-    rows.push([String(c.id), (cp.title || named || c.name || "") + (p4 ? " (PS4)" : ""), (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
+    rows.push([String(c.id), psName_(cp.title || named || c.name) + (p4 ? " (PS4)" : ""), (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
                psImage_(c.media), i + 1, psSubs_(tiers).join(","), 0, "", tiers.join(","), PS_STORE + "concept/" + c.id, pid,
                String(psSquare_(c.media) || "").replace(PS_IMG_ROOT, "~"), 0,
                psConceptIds_(c).length > 1 ? psConceptIds_(c).join(",") : ""]);   // 16: the game's editions (product ids)
@@ -1085,7 +1093,7 @@ function exportPsRegion_(code, startTime) {
   const storeBase = "https://store.playstation.com/" + PS_REGIONS[code].toLowerCase() + "/product/";
   const extra = sale.filter(p => !us[keyOf(p)]).map(p => {
     const tiers = psTiers_(p.price, [p.id]).filter(t => t !== "pspremium");   // can't tell Premium catalog from a trial here
-    return { productId: p.id, key: keyOf(p), title: p.name || "", publisher: "", image: psImage_(p.media), pc: false,
+    return { productId: p.id, key: keyOf(p), title: psName_(p.name), publisher: "", image: psImage_(p.media), pc: false,
              platforms: p.platforms || [], url: storeBase + p.id, subs: psSubs_(tiers), tiers: tiers, genres: [] };
   });
 
