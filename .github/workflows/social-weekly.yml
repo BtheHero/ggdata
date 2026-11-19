@@ -1,4 +1,5 @@
-# Sundays: the week's best deals on Xbox and PlayStation (data/weekly/…) posted to social media. See SOCIAL.md.
+# Sundays: the week's best deals on Xbox and PlayStation (data/weekly/…) queued for social media (social-queue.yml posts
+# them, one at a time). A manual run posts right away. See SOCIAL.md.
 name: Social weekly
 on:
   schedule:
@@ -42,7 +43,7 @@ jobs:
           node jobs/social-card.js
       - name: Upload the pictures (the posts link to them)
         run: node tools/upload.js push
-      - name: Post the week's best deals
+      - name: Queue the week's best deals (a manual run posts them)
         env:
           BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
           BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
@@ -64,6 +65,7 @@ jobs:
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           SOCIAL_DRY_RUN: ${{ vars.SOCIAL_DRY_RUN }}
           SOCIAL_FORCE: ${{ inputs.force && '1' || '' }}
+          SOCIAL_NOW: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
           SOCIAL_ONLY: ${{ inputs.only }}
         run: node jobs/social.js weekly
       - name: Upload what was posted

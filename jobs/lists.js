@@ -314,9 +314,14 @@ async function psPlus() {
   const out = { updatedAt: new Date().toISOString(), plat, year, bestYears, recent, upcoming, free, meta, publishers, acclaimed: acclaimed() };
   if (PS) out.psplus = await psPlus();
   write(plat + "_lists.json", out);
-  // the home page's row: the same games, soonest first (it replaces the "Most wanted" row)
+  // the home page's row: the same games, soonest first (it replaces the "Most wanted" row). Xbox only: PlayStation's home
+  // page has no "From acclaimed publishers" row (the list page keeps it)
   const h = read(homeFile, null);
-  if (h && h.sections) { h.sections.acclaimed = out.acclaimed.games.slice(0, 20); h.sections.acclaimedBy = out.acclaimed.by; delete h.sections.wanted; delete h.sections.wantedSrc; write(homeFile, h); }
+  if (h && h.sections) {
+    if (PS) { delete h.sections.acclaimed; delete h.sections.acclaimedBy; }
+    else { h.sections.acclaimed = out.acclaimed.games.slice(0, 20); h.sections.acclaimedBy = out.acclaimed.by; }
+    delete h.sections.wanted; delete h.sections.wantedSrc; write(homeFile, h);
+  }
   console.log("Lists (" + plat + "): recent " + recent.length + ", upcoming " + upcoming.length + ", free " + free.length + ", Metacritic " + meta.length +
     ", publishers " + publishers.length + ", best of " + years.join("/") + ", acclaimed " + out.acclaimed.by + "s' upcoming games " + out.acclaimed.games.length + " (top: " + out.acclaimed.studios.slice(0, 8).map(s => s.name).join(", ") + ")" +
     (PS ? ", PS Plus added " + out.psplus.added.length + ", coming " + out.psplus.coming.length : "") + ", publisher rows " + pubsale.map(p => p.name + " " + p.n).join(", "));
