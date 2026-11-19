@@ -47,9 +47,9 @@ body{width:${tall ? 1080 : 1200}px;height:${tall ? 1350 : 630}px;overflow:hidden
 .hd{display:flex;align-items:center;gap:${tall ? 22 : 16}px}
 .hd svg{width:${tall ? 92 : 64}px;height:${tall ? 92 : 64}px;flex:none;filter:drop-shadow(0 6px 18px ${P.c2}80)}
 .k{font:700 ${tall ? 22 : 15}px/1 Figtree;letter-spacing:.14em;text-transform:uppercase;color:${P.c1}}
-h1{font:700 ${tall ? 52 : 34}px/1.1 Unbounded;letter-spacing:-.02em}
+h1{font:800 ${tall ? 47 : 40}px/1.1 Figtree;letter-spacing:-.015em;white-space:nowrap}
 h1 i{font-style:normal;background:linear-gradient(90deg,${P.c1},${P.c2});-webkit-background-clip:text;background-clip:text;color:transparent}
-.dt{margin-left:auto;align-self:flex-start;font:600 ${tall ? 22 : 16}px/1 Figtree;color:${P.mute};padding:${tall ? "12px 18px" : "9px 14px"};border:1px solid ${P.line};border-radius:999px;white-space:nowrap}
+.dt{margin-top:${tall ? 10 : 7}px;font:600 ${tall ? 24 : 18}px/1 Figtree;color:${P.mute}}
 .ls{flex:1;display:flex;${tall ? "flex-direction:column;gap:18px;margin:46px 0 34px" : "gap:16px;margin:22px 0 18px;align-items:center"}}
 .g{position:relative;display:flex;${tall ? "align-items:center;gap:26px;flex:1;padding:16px 26px 16px 16px" : "flex-direction:column;flex:1;min-width:0;padding:12px"};
   background:rgba(255,255,255,.045);border:1px solid ${P.line};border-radius:${tall ? 26 : 20}px}
@@ -69,8 +69,7 @@ h1 i{font-style:normal;background:linear-gradient(90deg,${P.c1},${P.c2});-webkit
 .ft b{font:700 ${tall ? 30 : 20}px/1 Unbounded;color:#eef5f1;letter-spacing:-.02em}
 .ft b i{font-style:normal;color:${P.c1}}
 </style></head><body>
-<div class="hd">${MARK(P.c1, P.c2, P.c3)}<h1>This week's top 5<br><i>${P.name}</i> Deals</h1>
-<div class="dt">${fmtDay(wk.start)} – ${fmtDay(wk.end)}</div></div>
+<div class="hd">${MARK(P.c1, P.c2, P.c3)}<div><h1>This week's top 5 <i>${P.name}</i> Deals</h1><div class="dt">${fmtDay(wk.start)} – ${fmtDay(wk.end)}</div></div></div>
 <div class="ls">${rows}</div>
 <div class="ft"><b>game<i>deal</i>track.com</b></div>
 </body></html>`;
