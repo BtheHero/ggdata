@@ -60,6 +60,10 @@ const PS_REGIONS = {
   // where there is one, as deals are matched across regions by title (psDealKey_)
   MX: "en-MX", CL: "en-CL", CO: "en-CO", PE: "en-PE", CR: "es-CR", PA: "es-PA", GT: "es-GT", EC: "es-EC", UY: "es-UY", PY: "es-PY", BO: "es-BO", SV: "es-SV", HN: "es-HN", NI: "es-NI", PL: "en-PL", CZ: "en-CZ", HU: "en-HU", RO: "en-RO", SE: "en-SE", NO: "en-NO", DK: "en-DK", CH: "de-CH", IS: "en-IS", UA: "uk-UA", IL: "en-IL", NZ: "en-NZ", SG: "en-SG", HK: "en-HK", TW: "en-TW", MY: "en-MY", TH: "en-TH", ID: "en-ID", ZA: "en-ZA", SA: "en-SA", AE: "en-AE", QA: "en-QA", KW: "en-KW", BH: "en-BH", OM: "en-OM"
 };
+// Stores that also answer in English (same prices and currency): read in English so their deals match the US ones by
+// title (psDealKey_). The region's own locale stays for its store links.
+const PS_EN = { TR: "en-TR", BR: "en-BR", AR: "en-AR" };
+function psQueryLocale_(code) { return PS_EN[code] || PS_REGIONS[code]; }
 // Key that matches the same game edition across regions. Product ids differ per region (even the title id part),
 // so deals are matched on title + edition type + platforms. Concept ids are the same everywhere and are used as they are.
 // Titles with no Latin letters or digits (some Japanese/Korean ones) can't be matched and keep their own id.
@@ -363,6 +367,13 @@ function psGameKey_(name) {
   return norm_(String(name || "").replace(/[™®©]/g, "").split(/\s+[-–]\s+|\s*\(/)[0]
     .replace(/\b(standard|deluxe|ultimate|premium|gold|vault|complete|definitive|digital|cross-gen|bundle|trial|edition)\b.*$/i, ""));
 }
+// The game's own product on its page (its gallery, ratings and deal): the store lists first whatever it likes, and that
+// can be another game sold on the same page (Batman: Arkham Knight's page lists Batman: Arkham Collection first)
+function psMainProduct_(c, cache) {
+  const ids = psConceptIds_(c), ep = (cache && cache.eprice) || {}, ck = psGameKey_(c && c.name);
+  const own = ck.length >= 3 ? ids.find(id => ep[id] && ep[id][3] && psGameKey_(ep[id][3]).indexOf(ck) === 0) : null;
+  return own || ids[0] || null;
+}
 // Games whose US price is an edition other than the store's own price for the game (GTA VI: Standard, not the
 // Ultimate the store shows): the regions look their editions up too (exportPsRegion_), so they compare the same edition
 let PS_EPICK = {};
@@ -379,12 +390,17 @@ function psConceptPrice_(c, cache) {
     const free = !!(c.price && c.price.isFree);   // $0 editions only count for free games
     // upgrades and add-ons sold on the game's page ("Digital Deluxe Upgrade", $10) aren't an edition of the game
     const notEdition = e => /\b(upgrade|add-?ons?|season pass|expansion|dlc|soundtrack|currency|points|coins)\b/i.test(String(e[3] || ""));
-    ids.forEach(id => {
+    // another game sold on the same page (Red Dead Redemption 2's page also sells Red Dead Online, $19.99): only the
+    // products named like the game count, when its name can be compared (names in other scripts can't: all count then)
+    const ck = psGameKey_(c && c.name), named = id => ep[id] && ep[id][3] && psGameKey_(ep[id][3]).indexOf(ck) === 0;
+    const mine = ck.length >= 3 && ids.some(named) ? ids.filter(named) : ids;
+    mine.forEach(id => {
       const e = ep[id];
       if (e && e[0] !== null && e[1] !== null && (e[1] > 0 || free) && !notEdition(e) && (!std || e[1] < std[1] || (e[1] === std[1] && e[0] < std[0]))) std = e;
     });
-    // the store's "from" price for the page can itself be the upgrade's: then the standard edition's price replaces it
-    const fromAddOn = base !== null && ids.some(id => ep[id] && notEdition(ep[id]) && ep[id][1] === base);
+    // the store's "from" price for the page can itself be the upgrade's, or the other game's: then the standard
+    // edition's price replaces it
+    const fromAddOn = base !== null && ids.some(id => ep[id] && (notEdition(ep[id]) || mine.indexOf(id) < 0) && ep[id][1] === base);
     if (std && (base === null || std[1] <= base || fromAddOn)) {
       if (c && c.id && (std[1] !== base || std[0] !== price)) PS_EPICK[String(c.id)] = 1;
       price = std[0]; base = std[1];
@@ -874,7 +890,7 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
     const cp = psConceptPrice_(c, cache), price = cp.price, base = cp.base;
     if (price === null) return;   // not sold on its own (e.g. only in a bundle)
     const tiers = psFixTrial_(psTiers_(c.price, psConceptIds_(c)), c.id, trials || {});
-    const pid = (c.products && c.products[0] && c.products[0].id) || "";
+    const pid = psMainProduct_(c, cache) || "";
     if (cp.title && pid) franchise.push([rows.length, pid]);
     rows.push([String(c.id), cp.title || c.name || "", (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
                psImage_(c.media), i + 1, psSubs_(tiers).join(","), 0, "", tiers.join(","), PS_STORE + "concept/" + c.id, pid,
@@ -913,7 +929,7 @@ function testPlayStation() {
 // Concepts from the region's top lists are included too, so the home page rows can be re-priced.
 let PS_NAMES = {};   // a region's games by name (norm_ of cleanTitle_) -> concept id, best-selling first
 function exportPsRegion_(code, startTime) {
-  const locale = PS_REGIONS[code];
+  const locale = psQueryLocale_(code);
   const deals = psGrid_(PS_ALL_DEALS, { name: "sales30", isAscending: false }, 20000, locale);
   if (!deals.complete || !deals.items.length) {
     Logger.log("PlayStation " + code + ": deals list incomplete, keeping the previous file");
@@ -986,7 +1002,7 @@ function exportPsRegion_(code, startTime) {
   // games on sale here but not in the US sale list keep their own card details
   const us = {};
   (psReadJson_("PS_JSON_FILE_ID", { games: [] }).games || []).forEach(g => { if (g.key) us[g.key] = true; });
-  const storeBase = "https://store.playstation.com/" + locale.toLowerCase() + "/product/";
+  const storeBase = "https://store.playstation.com/" + PS_REGIONS[code].toLowerCase() + "/product/";
   const extra = sale.filter(p => !us[keyOf(p)]).map(p => {
     const tiers = psTiers_(p.price, [p.id]).filter(t => t !== "pspremium");   // can't tell Premium catalog from a trial here
     return { productId: p.id, key: keyOf(p), title: p.name || "", publisher: "", image: psImage_(p.media), pc: false,
@@ -995,7 +1011,7 @@ function exportPsRegion_(code, startTime) {
 
   // the home page's count of deals in this store: games only, PS4 and PS5 versions of the same game once (as in the US)
   const dealsCount = new Set(sale.filter(p => psIsGame_(p.storeDisplayClassification)).map(p => psVersionKey_({ title: p.name, kind: p.storeDisplayClassification }))).size;
-  const file = saveJsonToDrive_({ updatedAt: new Date().toISOString(), platform: "ps", region: code, locale: locale,
+  const file = saveJsonToDrive_({ updatedAt: new Date().toISOString(), platform: "ps", region: code, locale: PS_REGIONS[code],
                                   currency: currency, dealsCount: dealsCount, prices: prices, extra: extra },
                                 "ps_prices_" + code + ".json", "PS_PRICES_" + code + "_FILE_ID");
   Logger.log("PlayStation " + code + ": " + sale.length + " on sale (" + extra.length + " not on sale in the US), currency " +

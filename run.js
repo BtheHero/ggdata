@@ -68,7 +68,7 @@ function dcPrice(p) {
       if (st > now || en <= now) return;
       const pr = a.OrderManagementData && a.OrderManagementData.Price;
       if (!pr || !(Number(pr.MSRP) >= 0) || !(Number(pr.ListPrice) >= 0)) return;
-      if (!best || pr.ListPrice < best[0]) best = [Number(pr.ListPrice), Number(pr.MSRP) || Number(pr.ListPrice), pr.CurrencyCode];
+      if (!best || pr.ListPrice < best[0]) best = [Number(pr.ListPrice), Number(pr.MSRP) || Number(pr.ListPrice), pr.CurrencyCode, en < Date.UTC(3000, 0, 1) ? en : 0];
     });
   });
   return best;
@@ -110,7 +110,7 @@ function fillRegionGaps(code) {
       (d.Products || []).forEach(p => {
         const id = String(p.ProductId || "").toUpperCase(), pr = dcPrice(p);
         seen[id] = 1;
-        if (pr && pr[2] === rf.currency) { gaps[id] = [pr[0], pr[1], now]; found++; }
+        if (pr && pr[2] === rf.currency) { gaps[id] = [pr[0], pr[1], now, pr[1] > pr[0] && pr[3] ? pr[3] : 0]; found++; }
         else { gaps[id] = [null, null, now]; none++; }
       });
       chunks[n].forEach(id => { if (!seen[id]) { gaps[id] = [null, null, now]; none++; } });   // not sold in that market
@@ -118,13 +118,18 @@ function fillRegionGaps(code) {
   }
   // the region's file: its own prices first, then the looked-up ones; na = not sold there
   const na = [], gap = [];
+  // sale end times: the crawl's (exportRegion_), then the looked-up ones; past ones go
+  rf.ends = rf.ends || {};
+  (rf.gap || []).forEach(id => { delete rf.ends[id]; });
   Object.keys(gaps).forEach(id => {
     const g = gaps[id];
     if (have[id]) { delete gaps[id]; return; }   // the region's own list has it now
     if (now - g[2] > 30 * 864e5) { delete gaps[id]; return; }
     if (g[0] === null) { na.push(id); delete rf.prices[id]; }
-    else { rf.prices[id] = [g[0], g[1], 1e6, g[1] > g[0] ? Math.round((1 - g[0] / g[1]) * 100) : 0]; gap.push(id); }
+    else if (g[3] && g[3] <= now) { rf.prices[id] = [g[1], g[1], 1e6, 0]; gap.push(id); }   // its sale has ended since
+    else { rf.prices[id] = [g[0], g[1], 1e6, g[1] > g[0] ? Math.round((1 - g[0] / g[1]) * 100) : 0]; gap.push(id); if (g[3]) rf.ends[id] = g[3]; }
   });
+  Object.keys(rf.ends).forEach(id => { if (!rf.prices[id] || rf.ends[id] <= now) delete rf.ends[id]; });
   rf.na = na;
   rf.gap = gap;
   // the home page's count of deals in this store: games only (the looked-up prices include the add-ons)
@@ -150,7 +155,7 @@ const PS_GAP_MAX = Number(process.env.PS_GAP_MAX) || 1500, PS_GAP_RECHECK_DAYS =
 const PS_GAME_KINDS = /^(FULL_GAME|GAME_BUNDLE|PREMIUM_EDITION|BUNDLE)$/;
 function fillPsRegionGaps(code) {
   const dir = rt.DATA_DIR, read = f => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch (e) { return null; } };
-  const file = "ps_prices_" + code + ".json", rf = read(file), locale = __XBOX.PS_REGIONS[code];
+  const file = "ps_prices_" + code + ".json", rf = read(file), locale = psQueryLocale_(code);
   if (!rf || !rf.prices || !rf.currency || !locale) return;
   (rf.gap || []).forEach(k => { delete rf.prices[k]; });   // last run's merged prices (put back below, from the saved lookups)
   const own = k => !!rf.prices[k];
@@ -159,9 +164,12 @@ function fillPsRegionGaps(code) {
   const usKeys = new Set(), usByCode = {};
   sales.forEach(g => { if (g.key) { usKeys.add(g.key); const c = psCodeKey_(g.productId); if (c && !usByCode[c]) usByCode[c] = g.key; } });
   // what to look up: the US deals this region's file doesn't have (by their game's concept), then the full game list
-  const dealCon = [], catCon = [];
+  const dealCon = [], catCon = [], usByCon = {};
+  sales.forEach(g => { const d = details[g.productId]; if (g.key && d && d.con) (usByCon[String(d.con)] = usByCon[String(d.con)] || [])
+    .push({ key: g.key, kind: String(g.key).split("|")[1] || "", msrp: Number(g.msrp) || 0 }); });
   sales.forEach(g => { const d = details[g.productId]; if (g.key && !own(g.key) && d && d.con) dealCon.push(String(d.con)); });
-  cat.forEach(r => { if (r[0] && !own(String(r[0]))) catCon.push(String(r[0])); });
+  const titleOf = {};
+  cat.forEach(r => { if (r[0]) titleOf[String(r[0])] = r[1]; if (r[0] && !own(String(r[0]))) catCon.push(String(r[0])); });
   const gf = "ps_gaps_" + code + ".json", gaps = (read(gf) || {}).p || {}, now = Date.now();
   const saleEnded = x => (x[1] || []).some(e => e[4] && e[4] < now);
   const want = Array.from(new Set(dealCon.concat(catCon)));
@@ -187,7 +195,7 @@ function fillPsRegionGaps(code) {
         if (base === null && disc === null) return;
         // a PS Plus-only price isn't everyone's price: the regular one then
         const price = disc === null || pr.isTiedToSubscription || pr.isExclusive ? base : disc;
-        eds.push([psDealKey_(p), psCodeKey_(p.id), price, base === null ? price : base, Number(pr.endTime) || 0, p.id, p.storeDisplayClassification || ""]);
+        eds.push([psDealKey_(p), psCodeKey_(p.id), price, base === null ? price : base, Number(pr.endTime) || 0, p.id, p.storeDisplayClassification || "", p.name || ""]);
       });
       gaps[id] = [now, eds];
       if (eds.length) found++; else none++;
@@ -196,27 +204,62 @@ function fillPsRegionGaps(code) {
   }
   // merge: each concept's price (its cheapest edition at the regular price, like the US list), and the US deals' editions
   const gap = [];
+  // sale end times (ms) of this store's deals, for the site to end each sale right then: the looked-up ones are exact
+  const ends = {}, exact = {};
   const put = (k, e) => {
     if (own(k)) return;
     const ended = e[4] && e[4] < now, price = ended ? e[3] : e[2];
     rf.prices[k] = [price, e[3], 1e6, e[3] > price ? Math.round((1 - price / e[3]) * 100) : 0, e[5]];
+    if (price < e[3] && e[4] > now) ends[k] = e[4];
     gap.push(k);
   };
+  // every looked-up edition on sale, also those the store's own list has (by key): their exact end
+  Object.keys(gaps).forEach(id => (gaps[id][1] || []).forEach(e => { if (e[4] > now && e[2] < e[3]) exact[e[0]] = e[4]; }));
   Object.keys(gaps).forEach(id => {
     const x = gaps[id];
     if (own(id) || now - x[0] > 30 * 864e5) { delete gaps[id]; return; }   // the region's own list has it now, or too old
     const eds = x[1] || [];
     // no edition: not in this store under that id (older games can have another id there): left out, not "not sold"
     if (!eds.length) return;
-    const games = eds.filter(e => PS_GAME_KINDS.test(e[6])), pool = games.length ? games : eds;
+    // the game's own editions: not another game sold on its page (Red Dead Redemption 2's also sells Red Dead Online)
+    const ck = psGameKey_(titleOf[id]), named = eds.filter(e => ck.length >= 3 && e[7] && psGameKey_(e[7]).indexOf(ck) === 0);
+    const games = (named.length ? named : eds).filter(e => PS_GAME_KINDS.test(e[6])), pool = games.length ? games : named.length ? named : eds;
     const best = pool.reduce((a, e) => e[3] < a[3] ? e : a, pool[0]);
     put(id, [best[0], best[1], best[2], best[3], best[4], id]);   // (its store page: the concept's, concept/<id>)
+    const used = new Set();
     eds.forEach(e => {
       const k = usKeys.has(e[0]) ? e[0] : usByCode[e[1]];
-      if (k) put(k, e);
+      if (k) { put(k, e); used.add(e); }
+    });
+    // US deals of this game still without a price here (stores with names in their own language: "Dijital Deluxe
+    // Sürümü"): the edition of the same kind (FULL_GAME, PREMIUM_EDITION…), paired by regular price order when the two
+    // stores have as many of that kind
+    const kinds = {};
+    (usByCon[id] || []).filter(g => !own(g.key) && gap.indexOf(g.key) < 0).forEach(g => (kinds[g.kind] = kinds[g.kind] || []).push(g));
+    Object.keys(kinds).forEach(kind => {
+      const us = kinds[kind].sort((a, b) => a.msrp - b.msrp), here = eds.filter(e => e[6] === kind && !used.has(e)).sort((a, b) => a[3] - b[3]);
+      if (us.length !== here.length) return;
+      us.forEach((g, n) => put(g.key, here[n]));
     });
   });
   rf.gap = gap;
+  // The store's own deal list doesn't say when its sales end. The same sale ends at the same moment in every
+  // region's own time zone: this store's offset from the US end time, learnt from the deals looked up above (the most
+  // common difference), gives the end of its other deals that have the US deal's discount.
+  const usEnd = {}, usPct = {};
+  sales.forEach(g => { const t = Date.parse(g.saleEnds); if (g.key && t > now) { usEnd[g.key] = t; usPct[g.key] = Number(g.msrp) > 0 ? Math.round((1 - g.price / g.msrp) * 100) : 0; } });
+  const diffs = {};
+  Object.keys(rf.prices).forEach(k => { const t = ends[k] || exact[k]; if (t && usEnd[k]) { const d = t - usEnd[k]; diffs[d] = (diffs[d] || 0) + 1; } });
+  const best = Object.keys(diffs).sort((a, b) => diffs[b] - diffs[a])[0], shift = best !== undefined && diffs[best] >= 3 && Math.abs(best) <= 864e5 ? Number(best) : null;
+  let guessed = 0;
+  Object.keys(rf.prices).forEach(k => {
+    const p = rf.prices[k];
+    if (!(p[1] > p[0]) || ends[k]) return;
+    if (exact[k]) { ends[k] = exact[k]; return; }
+    if (shift !== null && usEnd[k] && Math.abs((usPct[k] || 0) - (p[3] || 0)) <= 1) { ends[k] = usEnd[k] + shift; guessed++; }
+  });
+  rf.ends = ends;
+  console.log("PlayStation " + code + " sale ends: " + Object.keys(ends).length + " (" + guessed + " from the US end time, offset " + (shift === null ? "unknown" : shift / 36e5 + " h") + ")");
   fs.writeFileSync(path.join(dir, gf), JSON.stringify({ updatedAt: new Date().toISOString(), p: gaps }));
   fs.writeFileSync(path.join(dir, file), JSON.stringify(rf));
   console.log("PlayStation " + code + " prices the lists missed: looked up " + order.length + " of " + want.length + " (" + found + " sold there, " + none + " not); " + gap.length + " prices merged");
