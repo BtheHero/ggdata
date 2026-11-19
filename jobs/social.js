@@ -77,7 +77,17 @@ function heroOf(plat, id) {
 }
 const wide = (u, w) => u ? "https://wsrv.nl/?url=" + encodeURIComponent(u) + "&w=" + w + "&h=" + Math.round(w * 9 / 16) + "&fit=cover&output=jpg&q=85" : "";
 // the picture a network shows: the hero art when the game has one (16:9), else the cover (square)
-const pic = (p, w) => p.hero ? wide(p.hero, w) : jpeg(p.image, w);
+// the weekly roundup's own pictures (jobs/social-card.js): a tall one (Instagram, Pinterest) and a wide one (Bluesky, Facebook)
+const cardOf = (plat, week) => {
+  const c = {};
+  ["tall", "wide"].forEach(shape => { const name = plat + "-" + week + "-" + shape + ".jpg", file = path.join(DATA, "social", "img", name);
+    if (fs.existsSync(file)) c[shape] = { file, url: SITE + "/social-img/" + name }; });
+  return c.tall || c.wide ? c : null;
+};
+const pic = (p, w, shape) => {
+  const c = p.card && (p.card[shape] || p.card.wide || p.card.tall);
+  return c ? c.url : p.hero ? wide(p.hero, w) : jpeg(p.image, w);
+};
 const withUtm = (u, src) => u + (u.includes("?") ? "&" : "?") + "utm_source=" + src + "&utm_medium=social";
 const endsText = e => e ? " · ends " + new Date(e).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) : "";
 
@@ -129,7 +139,7 @@ function weeklyPosts() {
     posts.push({ key: plat, week: wk.week, title: "This week's best " + PLAT[plat].name + " deals",
       head: "🎮 This week's best " + PLAT[plat].name + " deals\n",   // a blank line before the list
       line: top.map((g, i) => (i + 1) + ". " + g.title + " " + money(g.price, g.currency) + " (-" + pctOff(g) + "%)").join("\n"),
-      url: SITE + "/best-deals/" + plat, image: fullImg(top[0].sq || top[0].image), hero: heroOf(plat, top[0].id), tags: PLAT[plat].tags });
+      url: SITE + "/best-deals/" + plat, image: fullImg(top[0].sq || top[0].image), hero: heroOf(plat, top[0].id), card: cardOf(plat, wk.week), tags: PLAT[plat].tags });
   }
   return { posts, remember: keys => { posts.filter(p => keys.includes(p.key)).forEach(p => { posted[p.key] = p.week; }); write("social/weekly-posted.json", posted); } };
 }
@@ -166,12 +176,14 @@ const NETWORKS = {
         facets.push({ index: { byteStart: start, byteEnd: start + enc.encode(m[0]).length }, features: [{ $type: "app.bsky.richtext.facet#tag", tag: m[1] }] });
       }
       const external = { uri: withUtm(p.url, "bluesky"), title: p.title, description: "Price history, deal score and where to play on GameDealTrack" };
-      if (p.image) {
+      if (p.card || p.image) {
         try {
-          const img = await fetch(pic(p, 1200));
-          if (img.ok) {
+          const card = p.card && (p.card.wide || p.card.tall);   // the roundup's picture: from the file, it's made in this run
+          const img = card ? null : await fetch(pic(p, 1200, "wide"));
+          const bytes = card ? fs.readFileSync(card.file) : img.ok ? Buffer.from(await img.arrayBuffer()) : null;
+          if (bytes) {
             const blob = await ok(await fetch(host + "/xrpc/com.atproto.repo.uploadBlob", { method: "POST",
-              headers: Object.assign({ "content-type": "image/jpeg" }, auth), body: Buffer.from(await img.arrayBuffer()) }), "Bluesky image");
+              headers: Object.assign({ "content-type": "image/jpeg" }, auth), body: bytes }), "Bluesky image");
             external.thumb = blob.blob;
           }
         } catch (e) { console.log("  Bluesky: no image (" + e.message + ")"); }
@@ -188,9 +200,9 @@ const NETWORKS = {
     async post(p) {
       const message = [p.head, p.line, "", withUtm(p.url, "facebook"), "", p.tags.map(t => "#" + t).join(" ")].join("\n");
       const body = new URLSearchParams({ access_token: env.FB_PAGE_TOKEN });
-      if (p.image) { body.set("url", pic(p, 1200)); body.set("caption", message); }
+      if (p.card || p.image) { body.set("url", pic(p, 1200, "wide")); body.set("caption", message); }
       else { body.set("message", message); body.set("link", withUtm(p.url, "facebook")); }
-      const r = await ok(await fetch(GRAPH + "/" + env.FB_PAGE_ID + (p.image ? "/photos" : "/feed"), { method: "POST", body }), "Facebook");
+      const r = await ok(await fetch(GRAPH + "/" + env.FB_PAGE_ID + (p.card || p.image ? "/photos" : "/feed"), { method: "POST", body }), "Facebook");
       return r.post_id || r.id;
     }
   },
@@ -198,11 +210,11 @@ const NETWORKS = {
   instagram: {
     ready: () => env.IG_USER_ID && env.FB_PAGE_TOKEN,
     async post(p) {
-      if (!p.image) throw new Error("Instagram needs an image");
+      if (!p.card && !p.image) throw new Error("Instagram needs an image");
       // links in captions aren't clickable on Instagram: point to the link in the bio
       const caption = [p.head, p.line, "", "Link in bio: gamedealtrack.com", "", p.tags.concat(["VideoGames", "Gaming"]).map(t => "#" + t).join(" ")].join("\n");
       const c = await ok(await fetch(GRAPH + "/" + env.IG_USER_ID + "/media", { method: "POST",
-        body: new URLSearchParams({ image_url: pic(p, 1080), caption, access_token: env.FB_PAGE_TOKEN }) }), "Instagram upload");
+        body: new URLSearchParams({ image_url: pic(p, 1080, "tall"), caption, access_token: env.FB_PAGE_TOKEN }) }), "Instagram upload");
       for (let i = 0; i < 12; i++) {   // the image is fetched and processed by Instagram first
         const st = await ok(await fetch(GRAPH + "/" + c.id + "?fields=status_code&access_token=" + encodeURIComponent(env.FB_PAGE_TOKEN)), "Instagram status");
         if (st.status_code === "FINISHED") break;
@@ -220,7 +232,7 @@ const NETWORKS = {
     ready: () => env.PINTEREST_BOARD_ID && ((env.PINTEREST_APP_ID && env.PINTEREST_APP_SECRET && env.PINTEREST_REFRESH_TOKEN) || env.PINTEREST_ACCESS_TOKEN),
     token: env.PINTEREST_REFRESH_TOKEN ? null : env.PINTEREST_ACCESS_TOKEN || null,
     async post(p) {
-      if (!p.image) throw new Error("Pinterest needs an image");
+      if (!p.card && !p.image) throw new Error("Pinterest needs an image");
       if (!this.token) {   // access tokens last 30 days, the refresh token a year: get a fresh one each run
         const t = await ok(await fetch(PIN_API + "/v5/oauth/token", { method: "POST",
           headers: { authorization: "Basic " + Buffer.from(env.PINTEREST_APP_ID + ":" + env.PINTEREST_APP_SECRET).toString("base64"),
@@ -232,7 +244,7 @@ const NETWORKS = {
         headers: { authorization: "Bearer " + this.token, "content-type": "application/json" },
         body: JSON.stringify({ board_id: env.PINTEREST_BOARD_ID, title: p.title.slice(0, 100), link: withUtm(p.url, "pinterest"),
           description: (p.line + "\n" + p.tags.map(t => "#" + t).join(" ")).slice(0, 500), alt_text: p.title.slice(0, 500),
-          media_source: { source_type: "image_url", url: jpeg(p.image, 1000) } }) }), "Pinterest");
+          media_source: { source_type: "image_url", url: p.card ? pic(p, 1000, "tall") : jpeg(p.image, 1000) } }) }), "Pinterest");
       return r.id;
     }
   },
@@ -273,7 +285,7 @@ const NETWORKS = {
               (DRY ? " (dry run)" : "") + "; networks: " + (nets.join(", ") || "none set up"));
   if (!job.posts.length) return;
   if (DRY || !nets.length) {
-    job.posts.forEach(p => console.log("\n" + p.head + "\n" + p.line + "\n" + p.url + "\n  image: " + (p.image || p.hero ? pic(p, 1200) : "none")));
+    job.posts.forEach(p => console.log("\n" + p.head + "\n" + p.line + "\n" + p.url + "\n  image: " + (p.card || p.image || p.hero ? pic(p, 1200, "wide") + (p.card && p.card.tall ? "  and  " + p.card.tall.url : "") : "none")));
     return;
   }
   if (nets.includes("facebook") || nets.includes("instagram"))   // what the Meta secrets look like, without showing them

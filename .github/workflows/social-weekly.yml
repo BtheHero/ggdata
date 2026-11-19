@@ -36,6 +36,12 @@ jobs:
           aws s3 sync s3://ggdata/data/social data/social --endpoint-url "$R2" --only-show-errors
       - name: Note what was downloaded
         run: node tools/upload.js snapshot
+      - name: Draw the roundup pictures (the week's top 5 deals)
+        run: |
+          npm install --no-save --no-package-lock --silent playwright-core@1.48.2
+          node jobs/social-card.js
+      - name: Upload the pictures (the posts link to them)
+        run: node tools/upload.js push
       - name: Post the week's best deals
         env:
           BSKY_HANDLE: ${{ secrets.BSKY_HANDLE }}
