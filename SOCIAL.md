@@ -2,7 +2,7 @@
 
 `jobs/social.js` posts deals from the data the jobs already build:
 
-- **Big new deals**: after every scheduled Xbox and PlayStation run (4 runs a day), up to 3 deals per run with a deal score of 85 or more and at least 50% off, or 30% off when it's the lowest price ever. Each game is posted at most once every 30 days, whichever edition is on sale.
+- **Big deals on great games**: after every scheduled Xbox and PlayStation run (4 runs a day), up to 3 deals per run on games at least 75% off, with a Metascore of 83 or more and at least 2,000 ratings in the store, best Metascore first. Each game is posted at most once a week, whichever edition is on sale. The post says when the sale ends.
 - **Weekly roundup**: Sundays at 16:23 UTC (`.github/workflows/social-weekly.yml`), the 5 best deals of the week on each store, linking to `/best-deals/<xbox|ps>`.
 
 Each network posts only once its secrets are set (GitHub: Settings → Secrets and variables → Actions → New repository secret). Leave a network's secrets unset to skip it. If a post fails on one network, the others still post, and the store run never fails because of it.
@@ -101,8 +101,9 @@ Repository variables, if the defaults don't suit (add them to the steps' `env` i
 
 | Variable | Default | |
 |---|---|---|
-| `SOCIAL_MIN_SCORE` | 85 | Deal score a deal needs |
-| `SOCIAL_MIN_PCT` | 50 | Discount it needs (30% for a new lowest price) |
+| `SOCIAL_MIN_PCT` | 75 | Discount a deal needs |
+| `SOCIAL_MIN_METASCORE` | 83 | Metascore the game needs |
+| `SOCIAL_MIN_RATINGS` | 2000 | Ratings the game needs in the store |
 | `SOCIAL_MAX_DEALS` | 3 | Deals per run per store |
 | `X_DAILY_CAP` | 15 | Posts a day on X (through Buffer or X's paid API) |
 | `FB_GRAPH_VERSION` | v23.0 | Facebook Graph API version |
