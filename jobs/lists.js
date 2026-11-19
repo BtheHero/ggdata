@@ -11,7 +11,7 @@
 //     psplus      PlayStation only: {added, coming}: games new in the PS Plus catalog (first seen in it within
 //                 PSPLUS_NEW_DAYS), and games the PlayStation Blog announced for PS Plus that aren't in it yet
 //   data/<xbox|ps>_best_<year>.json   {year, updatedAt, games}: the year's 50 best games by Metascore (released on this
-//                 store that year, one per game; the other store's Metascore when this one has none). Updated through the year and in January (late reviews); then it's kept as it is.
+//                 store that year, one per game, as its standard edition; the other store's Metascore when this one has none). Updated through the year and in January (late reviews); then it's kept as it is.
 //   data/<xbox|ps>_xref.json   {g: {game: [Metascore, first release]}}: read by the other store's lists (best of the year)
 //   <xbox|ps>_home.json sections.pubsale: a row for each big publisher (PUB_ROWS) with more than PUB_MIN games on sale;
 //                 sections.acclaimed: the acclaimed studios' upcoming games (the same as the lists'), for the home page's row.
@@ -88,6 +88,16 @@ const main = Object.create(null);   // game key -> the edition that stands for i
 Object.keys(byGame).forEach(k => {
   main[k] = byGame[k].slice().sort((a, b) => rc(b) - rc(a) || mcOf(games[b]) - mcOf(games[a]) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
 });
+// the standard edition of each game (released, when one is): the one without an edition in its name, else the one named
+// "Standard", else the cheapest (the best of the year shows it, with its price, rather than a deluxe one)
+const EDN = /\b(edition|bundle|version)\b/i;
+const stdCmp = (a, b) => EDN.test(games[a].t) - EDN.test(games[b].t) || /pre-?order/i.test(games[a].t) - /pre-?order/i.test(games[b].t) ||
+  /standard/i.test(games[b].t) - /standard/i.test(games[a].t) || (games[a].m || 1e9) - (games[b].m || 1e9);
+const standard = Object.create(null);   // game key -> its standard edition
+Object.keys(byGame).forEach(k => {
+  const out = byGame[k].filter(id => relOf(games[id]) && relOf(games[id]) <= NOW);
+  standard[k] = (out.length ? out : byGame[k]).slice().sort(stdCmp)[0];
+});
 const one = list => { const seen = Object.create(null); return list.filter(id => { const k = gid(id); if (seen[k]) return false; seen[k] = 1; return true; }); };
 const mains = Object.keys(main).map(k => main[k]);
 // a game's name (without its edition) -> its main edition: matching names from outside (IGN, the PlayStation Blog)
@@ -143,8 +153,10 @@ function bestOf(y) {
   const first = id => firstRel[gid(id)];
   // its Metascore on this store, else the other store's for the same game (the game itself has to be on this store)
   const mc = id => mcOf(games[id]) || xmc[gid(id)] || (otherOf(id) || [0])[0];
+  // ranked by the game's best-known edition (its ratings), shown as its standard edition
   return mains.filter(id => { const t = first(id); return mc(id) > 0 && t >= from && t < to && t <= NOW; })
-    .sort((a, b) => mc(b) - mc(a) || rc(b) - rc(a)).slice(0, BEST_N).map(id => clean(Object.assign(entry(id, games[id]), { mc: mc(id) })));
+    .sort((a, b) => mc(b) - mc(a) || rc(b) - rc(a)).slice(0, BEST_N)
+    .map(id => { const sid = standard[gid(id)] || id; return clean(Object.assign(entry(sid, games[sid]), { mc: mc(id), rc: rc(id) || undefined })); });
 }
 const years = [year].concat(new Date(NOW).getUTCMonth() === 0 ? [year - 1] : []);   // last year's list until January ends
 years.forEach(y => {
@@ -247,9 +259,8 @@ function acclaimed() {
     const k = gid(id), c = coming[k] || (coming[k] = { ids: [], t: Infinity });
     c.ids.push(id); c.t = Math.min(c.t, relOf(g));
   });
-  const EDN = /\b(edition|bundle|version)\b/i;
   const list = Object.keys(coming).map(k => {
-    const c = coming[k], rep = c.ids.slice().sort((a, b) => EDN.test(games[a].t) - EDN.test(games[b].t) || /pre-?order/i.test(games[a].t) - /pre-?order/i.test(games[b].t) || /standard/i.test(games[b].t) - /standard/i.test(games[a].t) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
+    const c = coming[k], rep = c.ids.slice().sort(stdCmp)[0];
     return { id: rep, t: c.t };
   }).sort((a, b) => a.t - b.t || rank[studioKey(games[a.id])] - rank[studioKey(games[b.id])]).slice(0, ACCLAIMED_N).map(x => x.id);
   return {
