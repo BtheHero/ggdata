@@ -1,7 +1,8 @@
 // Posts deals to social media: Bluesky, Facebook, Instagram, Pinterest and X (Twitter).
 //
-//   node jobs/social.js deals xbox|ps   after each store run: the big new deals (high deal score, a deep discount or a new
-//                                       lowest price), each game once every REPOST_DAYS, at most SOCIAL_MAX_DEALS a run
+//   node jobs/social.js deals xbox|ps   after each store run: the big deals on well-known, well-reviewed games (a deep
+//                                       discount, a high Metascore, many store ratings), each game once every REPOST_DAYS,
+//                                       at most SOCIAL_MAX_DEALS a run
 //   node jobs/social.js weekly          once a week: the week's 5 best deals on Xbox and on PlayStation (data/weekly/…)
 //
 // What was posted is kept in data/social/<xbox|ps|weekly>-posted.json (uploaded with the other files), so a deal isn't
@@ -29,10 +30,11 @@ if (env.FB_PAGE_TOKEN && env.FB_PAGE_TOKEN.indexOf("EAA") > 0) env.FB_PAGE_TOKEN
 const shape = v => v ? v.length + " characters, " + (/^EAA/.test(v) ? "starts with EAA (good)" : "does NOT start with EAA") : "empty";
 const SITE = "https://gamedealtrack.com";
 const GRAPH = "https://graph.facebook.com/" + (env.FB_GRAPH_VERSION || "v23.0");
-const MIN_SCORE = Number(env.SOCIAL_MIN_SCORE || 85);   // deal score (0-100, gs/xbox.gs dealScore_) for a deal to be posted…
-const MIN_PCT = Number(env.SOCIAL_MIN_PCT || 50);       // …and the discount it needs (a new lowest price needs 30%)
+const MIN_PCT = Number(env.SOCIAL_MIN_PCT || 75);       // a deal is posted with at least this discount…
+const MIN_MC = Number(env.SOCIAL_MIN_METASCORE || 83);  // …a Metascore of at least this…
+const MIN_RATINGS = Number(env.SOCIAL_MIN_RATINGS || 2000);   // …and at least this many ratings in the store
 const MAX_DEALS = Number(env.SOCIAL_MAX_DEALS || 3);    // per run (two runs a day per store)
-const REPOST_DAYS = 30;
+const REPOST_DAYS = 7;    // a game is posted at most once a week
 const PIN_API = env.PINTEREST_API || "https://api.pinterest.com";   // Trial apps can be pointed at https://api-sandbox.pinterest.com
 const X_DAILY_CAP = Number(env.X_DAILY_CAP || 15);      // X bills every post: a cap on the spend
 const PLAT = { xbox: { name: "Xbox", tags: ["Xbox", "XboxDeals", "GameDeals"] }, ps: { name: "PlayStation", tags: ["PlayStation", "PSDeals", "GameDeals"] } };
@@ -91,7 +93,32 @@ const pic = (p, w, shape) => {
   return c ? c.url : p.hero ? wide(p.hero, w) : jpeg(p.image, w);
 };
 const withUtm = (u, src) => u + (u.includes("?") ? "&" : "?") + "utm_source=" + src + "&utm_medium=social";
-const endsText = e => e ? " · ends " + new Date(e).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }) : "";
+const endsLine = e => e ? "⏰ Sale ends " + new Date(e).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" }) : "";
+// the game's Metascore and number of store ratings, from its game page (data/<plat>_games_<n>.json, gs/gamepages.gs:
+// mc, ra = [stars, count]), else the Metascore from <plat>_scores.json. A page that only points to another (a) is followed.
+const pageCache = {};
+let scoreFile = null;
+function reviewsOf(plat, id) {
+  let mc = 0, rc = 0;
+  const page = k => {
+    const f = plat + "_games_" + shardOf(k) + ".json";
+    if (!(f in pageCache)) pageCache[f] = (load(f) || {}).games || {};
+    return pageCache[f][k] || pageCache[f][String(k).toUpperCase()] || null;
+  };
+  for (const k of plat === "ps" ? [id, psGameId(id)] : [id]) {
+    let g = page(k);
+    if (g && g.a && !g.ra && !g.mc) g = page(g.a) || g;
+    if (!g) continue;
+    mc = mc || (Array.isArray(g.mc) ? Number(g.mc[0]) : Number(g.mc)) || 0;
+    rc = Math.max(rc, (g.ra && Number(g.ra[1])) || 0);
+  }
+  if (!mc) {
+    if (!scoreFile) scoreFile = load(plat === "ps" ? "ps_scores.json" : "scores.json") || {};
+    const v = scoreFile[id] || scoreFile[String(id).toUpperCase()];
+    mc = (Array.isArray(v) ? Number(v[0]) : Number(v)) || 0;
+  }
+  return { mc, rc };
+}
 
 // ---------- what to post ----------
 
@@ -106,9 +133,10 @@ function dealPosts(plat) {
     if (!g.productId || !g.title || !(price > 0) || !(msrp > price) || ADDON_TITLE.test(g.title)) return false;
     if (g.saleEnds && Date.parse(g.saleEnds) <= Date.now() + 6 * 3600e3) return false;   // not one about to end
     if ((posted[g.productId] || "") > cutoff || (posted["t:" + gameKey(g.title)] || "") > cutoff) return false;
-    const pct = (1 - price / msrp) * 100, ds = Number(g.dealScore) || 0;
-    return ds >= MIN_SCORE && (pct >= MIN_PCT || (g.atLow && pct >= 30));
-  }).sort((a, b) => b.dealScore - a.dealScore || (b.msrp - b.price) - (a.msrp - a.price));
+    if ((1 - price / msrp) * 100 < MIN_PCT) return false;
+    g.rev = reviewsOf(plat, g.productId);
+    return g.rev.mc >= MIN_MC && g.rev.rc >= MIN_RATINGS;
+  }).sort((a, b) => b.rev.mc - a.rev.mc || b.rev.rc - a.rev.rc);
   const seen = new Set(), picked = [];
   for (const g of games) {   // one edition per game
     const k = gameKey(g.title);
@@ -120,7 +148,8 @@ function dealPosts(plat) {
     posts: picked.map(g => {
       const p = { price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD" }, pct = pctOff(p);
       const head = "🔥 " + g.title + ": " + pct + "% off on " + PLAT[plat].name;
-      const line = money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")" + (g.atLow ? " · lowest price ever" : "") + endsText(g.saleEnds);
+      const line = [money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")" + (g.atLow ? " · lowest price ever" : "") +
+                    " · Metascore " + g.rev.mc, endsLine(g.saleEnds)].filter(Boolean).join("\n");
       return { key: g.productId, title: g.title + " – " + pct + "% off (" + PLAT[plat].name + ")", head, line,
         url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags };
     }),
@@ -149,11 +178,11 @@ function weeklyPosts() {
 // ---------- the networks ----------
 
 const graphemes = s => [...new Intl.Segmenter("en", { granularity: "grapheme" }).segment(s)].length;
-function fit(parts, max) {   // head, line and hashtags, shortening the line when it's too long
+function fit(parts, max) {   // head, line and hashtags; when too long, without the hashtags, then shortening the line
   let [head, line, tail] = parts;
   const text = () => [head, line, tail].filter(Boolean).join("\n");
+  if (graphemes(text()) > max) tail = "";   // the hashtags go first, then the line's last parts
   while (graphemes(text()) > max && line.includes("\n")) line = line.split("\n").slice(0, -1).join("\n");
-  if (graphemes(text()) > max) tail = "";
   return text();
 }
 async function ok(res, what) {
