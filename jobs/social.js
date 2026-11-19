@@ -92,9 +92,14 @@ const cardOf = (plat, week) => {
     if (fs.existsSync(path.join(DATA, file))) c[shape] = { file, url: SITE + "/social-img/" + name }; });
   return c.tall || c.wide ? c : null;
 };
+// the game's poster (its portrait store cover) at w wide and h high, all of it shown (black bars when it's narrower)
+const poster = (u, w, h) => u ? "https://wsrv.nl/?url=" + encodeURIComponent(u) + "&w=" + w + "&h=" + h + "&fit=contain&cbg=000000&output=jpg&q=85" : "";
+// shape "wide": the hero art (16:9), else the cover; "tall" (Instagram, 4:5) and "poster" (Pinterest, 2:3): the poster
 const pic = (p, w, shape) => {
-  const c = p.card && (p.card[shape] || p.card.wide || p.card.tall);
-  return c ? c.url : p.hero ? wide(p.hero, w) : jpeg(p.image, w);
+  const c = p.card && (p.card[shape === "poster" ? "tall" : shape] || p.card.wide || p.card.tall);
+  if (c) return c.url;
+  if (shape !== "wide" && p.poster) return poster(p.poster, w, Math.round(w * (shape === "poster" ? 1.5 : 1.25)));
+  return p.hero ? wide(p.hero, w) : jpeg(p.image, w);
 };
 const withUtm = (u, src) => u + (u.includes("?") ? "&" : "?") + "utm_source=" + src + "&utm_medium=social";
 const endsLine = e => e ? "⏰ Sale ends " + new Date(e).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" }) : "";
@@ -154,7 +159,7 @@ function dealPosts(plat) {
       const head = "🔥 " + g.title + ": " + pct + "% off on " + PLAT[plat].name;
       const line = [money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")" + (g.atLow ? " · lowest price ever" : ""), endsLine(g.saleEnds)].filter(Boolean).join("\n");
       return { key: g.productId, title: g.title + " – " + pct + "% off (" + PLAT[plat].name + ")", head, line,
-        url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags, ends: g.saleEnds || "" };
+        url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), poster: fullImg(g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags, ends: g.saleEnds || "" };
     }),
     remember: keys => { picked.filter(g => keys.includes(g.productId)).forEach(g => { posted[g.productId] = posted["t:" + gameKey(g.title)] = today(); });
       Object.keys(posted).forEach(k => { if (posted[k] < cutoff) delete posted[k]; });
@@ -270,7 +275,7 @@ const NETWORKS = {
     async post(p) {
       if (!p.card && !p.image) throw new Error("Pinterest needs an image");
       const link = withUtm(p.url, "pinterest"), description = (p.line + "\n" + p.tags.map(t => "#" + t).join(" ")).slice(0, 500);
-      const image = p.card ? pic(p, 1000, "tall") : jpeg(p.image, 1000);
+      const image = p.card || p.poster ? pic(p, 1000, "poster") : jpeg(p.image, 1000);
       if (env.BUFFER_API_KEY && env.BUFFER_PINTEREST_CHANNEL_ID) {
         if (!this.board) this.board = await bufferBoard(env.BUFFER_PINTEREST_CHANNEL_ID, env.PINTEREST_BOARD_ID);
         return viaBuffer(env.BUFFER_PINTEREST_CHANNEL_ID, description, image, p.title,
