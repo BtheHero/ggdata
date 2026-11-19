@@ -386,8 +386,11 @@ function psGameKey_(name) {
 // can be another game sold on the same page (Batman: Arkham Knight's page lists Batman: Arkham Collection first)
 function psMainProduct_(c, cache) {
   const ids = psConceptIds_(c), ep = (cache && cache.eprice) || {}, ck = psGameKey_(c && c.name);
-  const own = ck.length >= 3 ? ids.find(id => ep[id] && ep[id][3] && psGameKey_(ep[id][3]).indexOf(ck) === 0) : null;
-  return own || ids[0] || null;
+  if (ck.length < 3) return ids[0] || null;
+  const key = id => ep[id] && ep[id][3] ? psGameKey_(ep[id][3]) : "";
+  // the product named exactly like the game first: "The Last of Us Part II" (PS4) over "The Last of Us Part II
+  // Remastered" (PS5), another game sold on the same store page; then one whose name starts with the game's
+  return ids.find(id => key(id) === ck) || ids.find(id => key(id).indexOf(ck) === 0) || ids[0] || null;
 }
 // Games whose US price is an edition other than the store's own price for the game (GTA VI: Standard, not the
 // Ultimate the store shows): the regions look their editions up too (exportPsRegion_), so they compare the same edition
