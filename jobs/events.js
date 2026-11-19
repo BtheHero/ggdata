@@ -64,7 +64,7 @@ for (const e of EVENTS) {
       const k = gameKey(g.title) || g.productId;
       if (games.length >= KEEP || keys.has(k)) return;
       keys.add(k);
-      games.push({ id: g.productId, title: g.title, publisher: g.publisher || "", image: g.image || "", sq: g.sq || null,
+      games.push({ id: g.productId, key: g.key || undefined, title: g.title, publisher: g.publisher || "", image: g.image || "", sq: g.sq || null,
         price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD", low: !!g.atLow, ds: g.dealScore || null,
         ends: g.saleEnds || null, pc: !!g.pc, genres: (g.genres || []).slice(0, 3), subs: g.subs || [], tiers: g.tiers || [], release: null, date: null });
     });
