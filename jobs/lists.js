@@ -40,9 +40,13 @@ const ADDON = /^(add-?on|add-on pack|map|level|costume|vehicle|character|item|ep
 const NOT_GAME = /\b(add-?ons?|upgrade|season pass|dlc|expansion pass|soundtrack|currency|points|coins|credits|v-bucks|costume|skins?|bonus|demo|trial|beta|playtest|test server|bundle|pack)\b/i;
 const isGame = g => g && g.t && !g.a && !g.kd && !ADDON.test(String(g.kd || "")) && !NOT_GAME.test(g.t);
 const SUBS_X = ["eaplay", "ubisoft", "gtaplus"];
+// PlayStation deals: their key in the regions' price files (psDealKey_, the same edition in every store), so the site
+// prices each one in the region picked instead of converting the US price
+const DEAL_KEY = {};
+if (plat === "ps") ((read("ps_sales.json", { games: [] }).games) || []).forEach(g => { if (g.productId && g.key) DEAL_KEY[g.productId] = g.key; });
 // in the site's card shape (site.js card())
 const entry = (id, g) => ({
-  id, title: g.t, publisher: g.p || "", image: art(g.i), sq: art(g.q) || null,
+  id, key: DEAL_KEY[id], title: g.t, publisher: g.p || "", image: art(g.i), sq: art(g.q) || null,
   price: Number(g.pr) || 0, msrp: Number(g.m) || Number(g.pr) || 0, currency: g.c || "USD",
   release: relOf(g) > NOW ? g.r : null, released: g.r || null, mc: mcOf(g) || undefined,
   ra: g.ra ? g.ra[0] : undefined, rc: g.ra ? g.ra[1] : 0, genres: (g.g || []).slice(0, 3),

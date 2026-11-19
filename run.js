@@ -168,10 +168,14 @@ function fillPsRegionGaps(code) {
   sales.forEach(g => { if (g.key) { usKeys.add(g.key); const c = psCodeKey_(g.productId); if (c && !usByCode[c]) usByCode[c] = g.key; } });
   // what to look up: the US deals this region's file doesn't have (by their game's concept), then the full game list
   const usLoose = psLooseMap_(usKeys);
+  // each US deal's game: from the per-game details, else the full game list's editions (16: product ids; 13: main product)
+  const conOfPid = {};
+  cat.forEach(r => { if (r[0]) [r[13]].concat(r[16] ? String(r[16]).split(",") : []).forEach(p => { if (p && !conOfPid[p]) conOfPid[p] = String(r[0]); }); });
+  const conOf = g => { const d = details[g.productId]; return (d && d.con && String(d.con)) || conOfPid[g.productId] || ""; };
   const dealCon = [], catCon = [], usByCon = {};
-  sales.forEach(g => { const d = details[g.productId]; if (g.key && d && d.con) (usByCon[String(d.con)] = usByCon[String(d.con)] || [])
+  sales.forEach(g => { const c = conOf(g); if (g.key && c) (usByCon[c] = usByCon[c] || [])
     .push({ key: g.key, kind: String(g.key).split("|")[1] || "", msrp: Number(g.msrp) || 0 }); });
-  sales.forEach(g => { const d = details[g.productId]; if (g.key && !own(g.key) && d && d.con) dealCon.push(String(d.con)); });
+  sales.forEach(g => { const c = conOf(g); if (g.key && !own(g.key) && c) dealCon.push(c); });
   const titleOf = {};
   cat.forEach(r => { if (r[0]) titleOf[String(r[0])] = r[1]; if (r[0] && !own(String(r[0]))) catCon.push(String(r[0])); });
   const gf = "ps_gaps_" + code + ".json", gaps = (read(gf) || {}).p || {}, now = Date.now();
@@ -221,11 +225,15 @@ function fillPsRegionGaps(code) {
   Object.keys(gaps).forEach(id => (gaps[id][1] || []).forEach(e => { if (e[4] > now && e[2] < e[3]) exact[e[0]] = e[4]; }));
   Object.keys(gaps).forEach(id => {
     const x = gaps[id];
-    if (own(id) || now - x[0] > 30 * 864e5) { delete gaps[id]; return; }   // the region's own list has it now, or too old
+    // too old, or nothing left to price: the region's own list has the game and each of its US deals
+    // (a game the store prices itself still pairs its US deals' editions below: Horizon Zero Dawn Remastered's deal in
+    // Singapore, the game being in Singapore's list; put() never replaces the store's own prices)
+    const open = (usByCon[id] || []).some(g => !own(g.key));
+    if (now - x[0] > 30 * 864e5 || (own(id) && !open)) { delete gaps[id]; return; }
     const eds = x[1] || [];
     // no edition: this store doesn't sell the game (one it sells under another id has its price already: own(id),
     // exportPsRegion_), nor the US deals of it: na, so the site says so instead of converting the US price
-    if (!eds.length) { na.add(id); (usByCon[id] || []).forEach(g => { if (!own(g.key)) na.add(g.key); }); return; }
+    if (!eds.length) { if (!own(id)) { na.add(id); (usByCon[id] || []).forEach(g => { if (!own(g.key)) na.add(g.key); }); } return; }
     // the game's own editions: not another game sold on its page (Red Dead Redemption 2's also sells Red Dead Online)
     const ck = psGameKey_(titleOf[id]), named = eds.filter(e => ck.length >= 3 && e[7] && psGameKey_(e[7]).indexOf(ck) === 0);
     const games = (named.length ? named : eds).filter(e => PS_GAME_KINDS.test(e[6])), pool = games.length ? games : named.length ? named : eds;
