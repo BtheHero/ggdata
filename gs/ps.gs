@@ -392,7 +392,9 @@ function psMainProduct_(c, cache) {
   const key = id => ep[id] && ep[id][3] ? psGameKey_(ep[id][3]) : "";
   // the product named exactly like the game first: "The Last of Us Part II" (PS4) over "The Last of Us Part II
   // Remastered" (PS5), another game sold on the same store page; then one whose name starts with the game's
-  return ids.find(id => key(id) === ck) || ids.find(id => key(id).indexOf(ck) === 0) || ids[0] || null;
+  // (of those, the one without an edition's name: "Resident Evil 4" over "Resident Evil 4 Gold Edition"; demos aside)
+  const named = ids.filter(id => key(id) === ck && !PS_DEMO.test(ep[id][3]));
+  return named.find(id => !PS_EDNAME.test(ep[id][3])) || named[0] || ids.find(id => key(id).indexOf(ck) === 0) || ids[0] || null;
 }
 // A store page selling a PS4 game and another version of it for PS5 under its own name (The Last of Us Part II and The
 // Last of Us Part II Remastered): the PS4 game's name gets " (PS4)", so the two aren't taken for each other.
@@ -426,6 +428,8 @@ function psTagPs4Deals_(ps4) {
 let PS_EPICK = {};
 // demos and trials sold on a game's page aren't another game
 const PS_DEMO = /\b(demo|trial|beta|playtest)\b/i;
+// names of editions and bundles, not of the game itself
+const PS_EDNAME = /\b(edition|bundle|collection|pack|trilogy|anthology|deluxe|gold|ultimate|premium|complete|definitive)\b/i;
 // A store page named after a bundle of the game (Resident Evil 3's is "RACCOON CITY EDITION", which also sells RESIDENT
 // EVIL 3): the game is the one product with another name (demos aside). Returns its product id, or null.
 function psRealGame_(c, cache) {
@@ -433,8 +437,10 @@ function psRealGame_(c, cache) {
   if (!/\b(edition|bundle|collection|pack|trilogy)\b/i.test(name)) return null;
   const ck = psGameKey_(name), key = id => ep[id] && ep[id][3] ? psGameKey_(ep[id][3]) : "";
   const ids = psConceptIds_(c).filter(id => ep[id] && ep[id][3] && ep[id][1] !== null && !PS_DEMO.test(ep[id][3]));
-  if (ck.length < 3 || !ids.some(id => key(id) === ck)) return null;
-  const others = ids.filter(id => key(id).length >= 3 && key(id) !== ck && key(id).indexOf(ck) !== 0);
+  // (only the bundle has the page's name: Resident Evil 4's page, "… Gold Edition", also sells "Resident Evil 4")
+  if (ck.length < 3 || ids.filter(id => key(id) === ck).length !== 1) return null;
+  // (another bundle on the page isn't the game: Resident Evil 4's also sells the Remake Trilogy)
+  const others = ids.filter(id => key(id).length >= 3 && key(id) !== ck && key(id).indexOf(ck) !== 0 && !PS_EDNAME.test(ep[id][3]));
   return others.length === 1 ? others[0] : null;
 }
 function psConceptPrice_(c, cache) {
@@ -961,7 +967,10 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
     if (cp.title && pid) franchise.push([rows.length, pid]);
     const p4 = !cp.title && psPs4Tag_(c, cache, pid);
     if (p4) ps4[pid] = 1;
-    rows.push([String(c.id), (cp.title || c.name || "") + (p4 ? " (PS4)" : ""), (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
+    // a store page named after an edition ("Resident Evil 4 Gold Edition PS4 & PS5"): the game's own name
+    const mn = !cp.title && pid && cache && cache.eprice && cache.eprice[pid] && cache.eprice[pid][3];
+    const named = mn && PS_EDNAME.test(c.name || "") && !PS_EDNAME.test(mn) && psGameKey_(mn) === psGameKey_(c.name) ? String(mn).trim() : "";
+    rows.push([String(c.id), (cp.title || named || c.name || "") + (p4 ? " (PS4)" : ""), (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
                psImage_(c.media), i + 1, psSubs_(tiers).join(","), 0, "", tiers.join(","), PS_STORE + "concept/" + c.id, pid,
                String(psSquare_(c.media) || "").replace(PS_IMG_ROOT, "~"), 0,
                psConceptIds_(c).length > 1 ? psConceptIds_(c).join(",") : ""]);   // 16: the game's editions (product ids)
