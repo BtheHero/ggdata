@@ -11,7 +11,7 @@ Each network posts only once its secrets are set (GitHub: Settings → Secrets a
 
 **Test first**: add a repository *variable* (not a secret) `SOCIAL_DRY_RUN` = `1`. The runs then print what they would post in the "Post…" step's log and send nothing. Delete the variable to go live. You can try it straight away from the Actions tab: **Social weekly → Run workflow**. (The deal posts run only on the schedule, not on manual runs.)
 
-Images: the store art is converted to a square JPEG by the free image proxy [wsrv.nl](https://wsrv.nl), because Instagram only accepts JPEGs and Bluesky needs images under 1 MB.
+Images: Instagram and Pinterest show the game's poster (its portrait store cover, whole, on black: 4:5 for Instagram, 2:3 for Pinterest); X, Facebook and Bluesky the wide hero art. The store art is converted to a square JPEG by the free image proxy [wsrv.nl](https://wsrv.nl), because Instagram only accepts JPEGs and Bluesky needs images under 1 MB.
 
 ## Bluesky (free)
 
@@ -43,7 +43,7 @@ No Pinterest app, and no wait for Pinterest's Standard access review: pins are p
 1. buffer.com: connect your Pinterest business account as a channel.
 2. Secrets: `BUFFER_API_KEY` (the same key as for X) and `BUFFER_PINTEREST_CHANNEL_ID` (for GameDealTrack it's
    `6afea54cece6dfde5f1ac691`).
-3. The pins go to the channel's first board, or set `PINTEREST_BOARD_ID` to the board's Pinterest id to choose one.
+3. The pins go to the board named in `PINTEREST_BOARD_ID` (its Pinterest id or its name) when the Buffer channel has it, else to the channel's first board.
 
 When both are set, the Pinterest app secrets below are ignored.
 
