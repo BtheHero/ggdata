@@ -386,6 +386,8 @@ function psGameKey_(name) {
 // can be another game sold on the same page (Batman: Arkham Knight's page lists Batman: Arkham Collection first)
 function psMainProduct_(c, cache) {
   const ids = psConceptIds_(c), ep = (cache && cache.eprice) || {}, ck = psGameKey_(c && c.name);
+  const real = psRealGame_(c, cache);
+  if (real) return real;
   if (ck.length < 3) return ids[0] || null;
   const key = id => ep[id] && ep[id][3] ? psGameKey_(ep[id][3]) : "";
   // the product named exactly like the game first: "The Last of Us Part II" (PS4) over "The Last of Us Part II
@@ -422,10 +424,29 @@ function psTagPs4Deals_(ps4) {
 // Games whose US price is an edition other than the store's own price for the game (GTA VI: Standard, not the
 // Ultimate the store shows): the regions look their editions up too (exportPsRegion_), so they compare the same edition
 let PS_EPICK = {};
+// demos and trials sold on a game's page aren't another game
+const PS_DEMO = /\b(demo|trial|beta|playtest)\b/i;
+// A store page named after a bundle of the game (Resident Evil 3's is "RACCOON CITY EDITION", which also sells RESIDENT
+// EVIL 3): the game is the one product with another name (demos aside). Returns its product id, or null.
+function psRealGame_(c, cache) {
+  const name = String((c && c.name) || ""), ep = (cache && cache.eprice) || {};
+  if (!/\b(edition|bundle|collection|pack|trilogy)\b/i.test(name)) return null;
+  const ck = psGameKey_(name), key = id => ep[id] && ep[id][3] ? psGameKey_(ep[id][3]) : "";
+  const ids = psConceptIds_(c).filter(id => ep[id] && ep[id][3] && ep[id][1] !== null && !PS_DEMO.test(ep[id][3]));
+  if (ck.length < 3 || !ids.some(id => key(id) === ck)) return null;
+  const others = ids.filter(id => key(id).length >= 3 && key(id) !== ck && key(id).indexOf(ck) !== 0);
+  return others.length === 1 ? others[0] : null;
+}
 function psConceptPrice_(c, cache) {
   let price = psPrice_(c.price && c.price.discountedPrice), base = psPrice_(c.price && c.price.basePrice);
   const ids = psConceptIds_(c), ep = (cache && cache.eprice) || {};
-  const games = new Set(ids.map(id => ep[id] && ep[id][3] ? psGameKey_(ep[id][3]) : "").filter(Boolean));
+  const real = psRealGame_(c, cache);
+  if (real) {
+    const e = ep[real];
+    if (c && c.id && (e[0] !== price || e[1] !== base)) PS_EPICK[String(c.id)] = 1;
+    return { price: e[0], base: e[1], title: String(e[3]).trim(), game: real };
+  }
+  const games = new Set(ids.map(id => ep[id] && ep[id][3] && !PS_DEMO.test(ep[id][3]) ? psGameKey_(ep[id][3]) : "").filter(Boolean));
   const first = ep[ids[0]];
   if (games.size >= 3 && first && first[0] !== null && first[3]) {
     return { price: first[0], base: first[1], title: String(first[3]).replace(/\s+[-–]\s+(standard edition|cross-gen bundle)$/i, "") };
