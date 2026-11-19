@@ -392,6 +392,33 @@ function psMainProduct_(c, cache) {
   // Remastered" (PS5), another game sold on the same store page; then one whose name starts with the game's
   return ids.find(id => key(id) === ck) || ids.find(id => key(id).indexOf(ck) === 0) || ids[0] || null;
 }
+// A store page selling a PS4 game and another version of it for PS5 under its own name (The Last of Us Part II and The
+// Last of Us Part II Remastered): the PS4 game's name gets " (PS4)", so the two aren't taken for each other.
+// pid: the page's main product (psMainProduct_). Product ids say the platform: CUSA = PS4, PPSA = PS5.
+function psPs4Tag_(c, cache, pid) {
+  const name = String((c && c.name) || ""), ck = psGameKey_(name), ep = (cache && cache.eprice) || {};
+  if (ck.length < 3 || !/-CUSA\d/.test(pid || "") || /\bPS4\b/i.test(name)) return false;
+  const NOT_ED = /\b(upgrade|add-?ons?|season pass|expansion|dlc|soundtrack|currency|points|coins|virtual|bundle|pack)\b/i;
+  return psConceptIds_(c).some(id => {
+    const n = ep[id] && ep[id][3], k = n ? psGameKey_(n) : "";
+    return id !== pid && /-PPSA\d/.test(id) && k !== ck && k.indexOf(ck) === 0 && !NOT_ED.test(n);
+  });
+}
+// The same name on the deal cards (the deals and the home page are saved before the full game list)
+function psTagPs4Deals_(ps4) {
+  if (!Object.keys(ps4).length) return;
+  const tag = g => { const id = g && (g.productId || g.id); if (id && ps4[id] && !/\(PS4\)\s*$/.test(g.title || "")) { g.title = String(g.title || "").trim() + " (PS4)"; return 1; } return 0; };
+  let n = 0;
+  const sales = psReadJson_("PS_JSON_FILE_ID", null);
+  if (sales && sales.games) { sales.games.forEach(g => { n += tag(g); }); if (n) saveJsonToDrive_(sales, "ps_sales.json", "PS_JSON_FILE_ID"); }
+  const home = psReadJson_("PS_HOME_FILE_ID", null);
+  let h = 0;
+  if (home && home.sections) {
+    Object.keys(home.sections).forEach(k => { const v = home.sections[k]; if (Array.isArray(v)) v.forEach(g => { h += tag(g); }); });
+    if (h) saveJsonToDrive_(home, "ps_home.json", "PS_HOME_FILE_ID");
+  }
+  Logger.log("PlayStation PS4 games sold next to a PS5 version: " + Object.keys(ps4).length + " named (PS4), " + n + " deals, " + h + " home cards");
+}
 // Games whose US price is an edition other than the store's own price for the game (GTA VI: Standard, not the
 // Ultimate the store shows): the regions look their editions up too (exportPsRegion_), so they compare the same edition
 let PS_EPICK = {};
@@ -903,6 +930,7 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
   // cheapest edition for the most popular multi-edition games (the rest keep the store's price)
   if (cache) psEditionPrices_(all.items, cache, (t0 || Date.now()) + 8 * 60 * 1000, 5000);   // every game sold in several editions
   const rows = [], franchise = [];   // [row index, product id] of franchise pages (psFranchiseArt_)
+  const ps4 = {};   // main products named "… (PS4)" (psPs4Tag_)
   all.items.forEach((c, i) => {
     if (!c || !c.id || !c.price) return;
     const cp = psConceptPrice_(c, cache), price = cp.price, base = cp.base;
@@ -910,7 +938,9 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
     const tiers = psFixTrial_(psTiers_(c.price, psConceptIds_(c)), c.id, trials || {});
     const pid = psMainProduct_(c, cache) || "";
     if (cp.title && pid) franchise.push([rows.length, pid]);
-    rows.push([String(c.id), cp.title || c.name || "", (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
+    const p4 = !cp.title && psPs4Tag_(c, cache, pid);
+    if (p4) ps4[pid] = 1;
+    rows.push([String(c.id), (cp.title || c.name || "") + (p4 ? " (PS4)" : ""), (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
                psImage_(c.media), i + 1, psSubs_(tiers).join(","), 0, "", tiers.join(","), PS_STORE + "concept/" + c.id, pid,
                String(psSquare_(c.media) || "").replace(PS_IMG_ROOT, "~"), 0,
                psConceptIds_(c).length > 1 ? psConceptIds_(c).join(",") : ""]);   // 16: the game's editions (product ids)
@@ -923,6 +953,7 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
   const file = saveJsonToDrive_({ updatedAt: new Date().toISOString(), platform: "ps", count: rows.length, games: rows },
                                 "ps_catalog.json", "PS_CATALOG_FILE_ID");
   try { psConceptHistory_(rows); } catch (e) { Logger.log("PlayStation whole-game history failed: " + e.message); }
+  try { psTagPs4Deals_(ps4); } catch (e) { Logger.log("PlayStation (PS4) names on the deals failed: " + e.message); }
   Logger.log("PlayStation catalog saved: " + rows.length + " games " + file.getUrl());
 }
 
