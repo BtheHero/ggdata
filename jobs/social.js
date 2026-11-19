@@ -123,7 +123,7 @@ function reviewsOf(plat, id) {
 // ---------- what to post ----------
 
 const gameKey = t => String(t).toLowerCase().replace(/[™®©]/g, "").replace(/\b(standard|deluxe|ultimate|premium|gold|complete|definitive|digital|special|game of the year|goty|enhanced|anniversary|cross-gen)\b( edition| bundle)?/g, " ")
-  .replace(/\bedition\b|\bbundle\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
+  .replace(/\bedition\b|\bbundle\b|\(pc\)|\bfor (windows|pc)\b|\bwindows\b|\bpc\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
 const ADDON_TITLE = /\b(season pass|dlc|expansion pass|soundtrack|costume|character pack|add-?on|upgrade|points|coins|currency|v-bucks|crowns)\b/i;
 function dealPosts(plat) {
   const posted = read("social/" + plat + "-posted.json", {});
@@ -267,7 +267,7 @@ const NETWORKS = {
       const link = withUtm(p.url, "pinterest"), description = (p.line + "\n" + p.tags.map(t => "#" + t).join(" ")).slice(0, 500);
       const image = p.card ? pic(p, 1000, "tall") : jpeg(p.image, 1000);
       if (env.BUFFER_API_KEY && env.BUFFER_PINTEREST_CHANNEL_ID) {
-        if (!this.board) this.board = env.PINTEREST_BOARD_ID || await bufferBoard(env.BUFFER_PINTEREST_CHANNEL_ID);
+        if (!this.board) this.board = await bufferBoard(env.BUFFER_PINTEREST_CHANNEL_ID, env.PINTEREST_BOARD_ID);
         return viaBuffer(env.BUFFER_PINTEREST_CHANNEL_ID, description, image, p.title,
           { pinterest: { boardServiceId: this.board, title: p.title.slice(0, 100), url: link } });
       }
@@ -322,10 +322,13 @@ async function viaBuffer(channelId, text, image, alt, metadata) {
   if (!c || c.__typename !== "PostActionSuccess") throw new Error("Buffer " + (c ? c.__typename + ": " + c.message : "no answer"));
   return "Buffer post " + c.post.id;
 }
-async function bufferBoard(channelId) {   // the Pinterest channel's first board
+async function bufferBoard(channelId, want) {   // the board: PINTEREST_BOARD_ID (its id or name) when the channel has it, else its first board
   const d = await buffer("query($id: ChannelId!) { channel(input: { id: $id }) { metadata { ... on PinterestMetadata { boards { serviceId name } } } } }", { id: channelId });
-  const b = d.channel && d.channel.metadata && d.channel.metadata.boards && d.channel.metadata.boards[0];
-  if (!b) throw new Error("Buffer: the Pinterest channel has no board");
+  const boards = (d.channel && d.channel.metadata && d.channel.metadata.boards) || [];
+  if (!boards.length) throw new Error("Buffer: the Pinterest channel has no board");
+  const b = (want && boards.find(x => x.serviceId === want || x.name.toLowerCase() === String(want).toLowerCase())) || boards[0];
+  if (want && b.serviceId !== want && b.name.toLowerCase() !== String(want).toLowerCase())
+    console.log("  Pinterest: board " + want + " isn't on the Buffer channel, posting to \"" + b.name + "\"");
   return b.serviceId;
 }
 

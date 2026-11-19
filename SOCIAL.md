@@ -41,7 +41,7 @@ No Pinterest app, and no wait for Pinterest's Standard access review: pins are p
 1. buffer.com: connect your Pinterest business account as a channel.
 2. Secrets: `BUFFER_API_KEY` (the same key as for X) and `BUFFER_PINTEREST_CHANNEL_ID` (for GameDealTrack it's
    `6afea54cece6dfde5f1ac691`).
-3. The pins go to the channel's first board, or set `PINTEREST_BOARD_ID` to the board's Pinterest id to choose one.
+3. The pins go to the board named in `PINTEREST_BOARD_ID` (its Pinterest id or its name) when the Buffer channel has it, else to the channel's first board.
 
 When both are set, the Pinterest app secrets below are ignored.
 
