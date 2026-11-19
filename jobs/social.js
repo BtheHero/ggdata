@@ -148,8 +148,7 @@ function dealPosts(plat) {
     posts: picked.map(g => {
       const p = { price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD" }, pct = pctOff(p);
       const head = "🔥 " + g.title + ": " + pct + "% off on " + PLAT[plat].name;
-      const line = [money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")" + (g.atLow ? " · lowest price ever" : "") +
-                    " · Metascore " + g.rev.mc, endsLine(g.saleEnds)].filter(Boolean).join("\n");
+      const line = [money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")" + (g.atLow ? " · lowest price ever" : ""), endsLine(g.saleEnds)].filter(Boolean).join("\n");
       return { key: g.productId, title: g.title + " – " + pct + "% off (" + PLAT[plat].name + ")", head, line,
         url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags };
     }),
