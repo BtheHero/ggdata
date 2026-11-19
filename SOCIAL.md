@@ -57,12 +57,25 @@ Pinterest sign-in and consent screen, the return to the "connected" page, then t
 show the deal pins the job posted on the board. In the request, describe the use: "Posts Xbox and PlayStation game
 deals from gamedealtrack.com to our own board, a few times a day; one account (ours), no other users."
 
-## X / Twitter (paid, optional)
+## X / Twitter
+
+### Through Buffer (recommended)
+
+Buffer posts to X for you, with the picture, so X's own per-post API fees don't apply.
+
+1. buffer.com: connect your X account as a channel.
+2. Buffer → Settings → API: create an API key.
+3. Secrets: `BUFFER_API_KEY` (that key) and `BUFFER_X_CHANNEL_ID` (the X channel's id in Buffer; for GameDealTrack it's
+   `6afe5094ece6dfde5f16691c`).
+
+When both are set, X posts go through Buffer and the `X_…` secrets below are ignored. `X_DAILY_CAP` (default 15 posts a
+day) still applies; raise it if your Buffer plan allows more.
+
+### X's own API (paid)
 
 X has no free API tier any more (since early 2026): posting is billed per post, about $0.015 a post and about $0.20 for a
 post with a link (all of these have one), per third-party write-ups; check X's developer pricing page for current rates.
-At this job's volume that is roughly $50-75 a month, so X is left out unless its secrets are set. `X_DAILY_CAP`
-(default 15 posts a day) caps the spend.
+At this job's volume that is roughly $50-75 a month. `X_DAILY_CAP` (default 15 posts a day) caps the spend.
 
 1. developer.x.com → create a project and app, and add credit for pay-per-use.
 2. App settings → User authentication settings: **Read and write**.
@@ -78,7 +91,7 @@ Repository variables, if the defaults don't suit (add them to the steps' `env` i
 | `SOCIAL_MIN_SCORE` | 85 | Deal score a deal needs |
 | `SOCIAL_MIN_PCT` | 50 | Discount it needs (30% for a new lowest price) |
 | `SOCIAL_MAX_DEALS` | 3 | Deals per run per store |
-| `X_DAILY_CAP` | 15 | Posts a day on X (each one is paid) |
+| `X_DAILY_CAP` | 15 | Posts a day on X (through Buffer or X's paid API) |
 | `FB_GRAPH_VERSION` | v23.0 | Facebook Graph API version |
 
 What was posted: `data/social/<xbox|ps|weekly>-posted.json` in the bucket. Delete an entry to allow a game to be posted again.

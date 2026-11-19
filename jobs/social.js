@@ -13,13 +13,14 @@
 //   Facebook   FB_PAGE_ID, FB_PAGE_TOKEN (a never-expiring Page token)
 //   Instagram  IG_USER_ID (the Instagram business account linked to the Facebook page; uses FB_PAGE_TOKEN)
 //   Pinterest  PINTEREST_BOARD_ID, PINTEREST_APP_ID, PINTEREST_APP_SECRET, PINTEREST_REFRESH_TOKEN (or PINTEREST_ACCESS_TOKEN: ~30 days)
-//   X          X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET (paid per post: capped by X_DAILY_CAP)
+//   X          BUFFER_API_KEY, BUFFER_X_CHANNEL_ID (through Buffer), or else X's own API: X_API_KEY, X_API_SECRET,
+//              X_ACCESS_TOKEN, X_ACCESS_SECRET (paid per post). Either way at most X_DAILY_CAP posts a day
 const fs = require("fs"), path = require("path"), crypto = require("crypto");
 const DATA = path.resolve(process.env.DATA_DIR || "data");
 const env = Object.assign({}, process.env), DRY = env.SOCIAL_DRY_RUN === "1";
 // secrets pasted from a terminal can carry line breaks (a wrapped line), spaces or a note after them: keep just the value
 ["FB_PAGE_ID", "FB_PAGE_TOKEN", "IG_USER_ID", "BSKY_HANDLE", "PINTEREST_BOARD_ID", "PINTEREST_APP_ID", "PINTEREST_REFRESH_TOKEN",
- "PINTEREST_ACCESS_TOKEN", "X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"].forEach(k => {
+ "PINTEREST_ACCESS_TOKEN", "BUFFER_API_KEY", "BUFFER_X_CHANNEL_ID", "X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"].forEach(k => {
   if (env[k]) env[k] = env[k].replace(/\([^)]*\)/g, "").replace(/[\s"']+/g, "");
 });
 // a Meta Page token starts with "EAA": drop anything pasted before it (like the "FB_PAGE_TOKEN" label)
@@ -250,13 +251,39 @@ const NETWORKS = {
   },
 
   x: {
-    ready: () => env.X_API_KEY && env.X_API_SECRET && env.X_ACCESS_TOKEN && env.X_ACCESS_SECRET,
+    ready: () => (env.BUFFER_API_KEY && env.BUFFER_X_CHANNEL_ID) || (env.X_API_KEY && env.X_API_SECRET && env.X_ACCESS_TOKEN && env.X_ACCESS_SECRET),
     async post(p) {
       const log = read("social/x-log.json", {}), day = today();
       if ((log[day] || 0) >= X_DAILY_CAP) return "skipped (" + X_DAILY_CAP + " posts today, X_DAILY_CAP)";
       // links count as 23 characters on X
       const url = withUtm(p.url, "x"), tags = p.tags.slice(0, 2).map(t => "#" + t).join(" ");
       let text = fit([p.head, p.line, tags], 280 - 24) + "\n" + url;
+      let id;
+      if (env.BUFFER_API_KEY && env.BUFFER_X_CHANNEL_ID) id = await viaBuffer(env.BUFFER_X_CHANNEL_ID, text, p.card || p.image || p.hero ? pic(p, 1200, "wide") : "", p.title);
+      else id = await viaX(text);
+      log[day] = (log[day] || 0) + 1;
+      Object.keys(log).forEach(d => { if (d < new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10)) delete log[d]; });
+      write("social/x-log.json", log);
+      return id;
+    }
+  }
+};
+
+// X through Buffer's API (api.buffer.com, GraphQL): Buffer posts it right away with the picture; X's own per-post fees don't apply
+async function viaBuffer(channelId, text, image, alt) {
+  const input = { channelId, text, mode: "shareNow", schedulingType: "automatic", needsApproval: false, source: "gamedealtrack",
+    assets: image ? [{ image: { url: image, metadata: { altText: String(alt || "").slice(0, 400) } } }] : [] };
+  const r = await ok(await fetch("https://api.buffer.com", { method: "POST", headers: { authorization: "Bearer " + env.BUFFER_API_KEY, "content-type": "application/json" },
+    body: JSON.stringify({ query: "mutation($input: CreatePostInput!) { createPost(input: $input) { __typename ... on PostActionSuccess { post { id } } ... on MutationError { message } } }",
+      variables: { input } }) }), "Buffer");
+  if (r.errors) throw new Error("Buffer: " + r.errors.map(e => e.message).join("; "));
+  const c = r.data && r.data.createPost;
+  if (!c || c.__typename !== "PostActionSuccess") throw new Error("Buffer " + (c ? c.__typename + ": " + c.message : "no answer"));
+  return "Buffer post " + c.post.id;
+}
+
+// X's own API (paid per post), signed with OAuth 1.0a
+async function viaX(text) {
       const api = "https://api.x.com/2/tweets";
       const o = { oauth_consumer_key: env.X_API_KEY, oauth_nonce: crypto.randomBytes(16).toString("hex"), oauth_signature_method: "HMAC-SHA1",
         oauth_timestamp: String(Math.floor(Date.now() / 1000)), oauth_token: env.X_ACCESS_TOKEN, oauth_version: "1.0" };
@@ -265,13 +292,8 @@ const NETWORKS = {
       o.oauth_signature = crypto.createHmac("sha1", pe(env.X_API_SECRET) + "&" + pe(env.X_ACCESS_SECRET)).update(base).digest("base64");
       const header = "OAuth " + Object.keys(o).sort().map(k => pe(k) + '="' + pe(o[k]) + '"').join(", ");
       const r = await ok(await fetch(api, { method: "POST", headers: { authorization: header, "content-type": "application/json" }, body: JSON.stringify({ text }) }), "X");
-      log[day] = (log[day] || 0) + 1;
-      Object.keys(log).forEach(d => { if (d < new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10)) delete log[d]; });
-      write("social/x-log.json", log);
       return r.data && r.data.id;
-    }
-  }
-};
+}
 
 // ---------- run ----------
 
