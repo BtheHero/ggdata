@@ -1,7 +1,7 @@
 # The automation report (tools/report.js): every run of the last 7 days, what it did, and the social posts network by
 # network, as a password-protected site on Cloudflare Pages (report-site/; the password check is
 # report-site/functions/_middleware.js). Every 6 hours, and by hand. It doesn't touch the site's data or the R2 bucket.
-# Secrets: CLOUDFLARE_API_TOKEN (Account → Cloudflare Pages → Edit), CLOUDFLARE_ACCOUNT_ID, REPORT_PASSWORD.
+# Secrets: CLOUDFLARE_API_TOKEN (an Account API Token with Cloudflare Pages → Edit), CLOUDFLARE_ACCOUNT_ID, REPORT_PASSWORD.
 name: Report
 on:
   schedule:
@@ -53,19 +53,21 @@ jobs:
           export CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
           # say which part is wrong: the token itself, or its access to Pages on this account
           CF=https://api.cloudflare.com/client/v4
-          if ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/user/tokens/verify" | grep -q '"status":"active"'; then
-            echo "::error::CLOUDFLARE_API_TOKEN isn't a valid, active API token (an API token from My Profile → API Tokens, not the Global API Key)"; exit 1
-          fi
           case "$CLOUDFLARE_ACCOUNT_ID" in *[!0-9a-f]*|"") echo "::error::CLOUDFLARE_ACCOUNT_ID should be 32 characters, 0-9 and a-f"; exit 1;; esac
+          # a user's token (My Profile → API Tokens) or the account's own (Manage Account → Account API Tokens)
+          if ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/user/tokens/verify" | grep -q '"status":"active"' &&
+             ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify" | grep -q '"status":"active"'; then
+            echo "::error::CLOUDFLARE_API_TOKEN isn't a valid, active API token for this account (an API token, not the Global API Key)"; exit 1
+          fi
           if ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects" | grep -q '"success":true'; then
             # which accounts the token reaches (only the first 4 characters of each id: this log is public)
             IDS="$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts?per_page=50" | grep -o '"id":"[0-9a-f]\{32\}"' | cut -d'"' -f4)"
             N="$(printf '%s\n' "$IDS" | grep -c . || true)"
-            SHORT="$(printf '%s\n' "$IDS" | cut -c1-4 | sed 's/$/…/' | paste -sd, -)"
+            SHORT="$(printf '%s\n' "$IDS" | grep . | cut -c1-4 | sed 's/$/…/' | paste -sd, -)"
             if printf '%s\n' "$IDS" | grep -qx "$CLOUDFLARE_ACCOUNT_ID"; then
               echo "::error::The token reaches the account in CLOUDFLARE_ACCOUNT_ID but has no Cloudflare Pages access there: give it Account → Cloudflare Pages → Edit for that account"
             else
-              echo "::error::CLOUDFLARE_ACCOUNT_ID (starts ${CLOUDFLARE_ACCOUNT_ID:0:4}…, ${#CLOUDFLARE_ACCOUNT_ID} characters) isn't an account this token reaches. The token reaches $N account(s): ${SHORT:-none}. Use one of those ids, or make the token for that account."
+              echo "::error::CLOUDFLARE_ACCOUNT_ID (starts ${CLOUDFLARE_ACCOUNT_ID:0:4}…, ${#CLOUDFLARE_ACCOUNT_ID} characters) isn't an account this token reaches. The token reaches $N account(s)${SHORT:+: $SHORT}. Use one of those ids, or make the token for that account."
             fi
             exit 1
           fi
