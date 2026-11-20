@@ -5,6 +5,7 @@
 //                                     jobs/social.js deals): the game's poster with its price and discount, for Instagram
 //                                     (1080×1350, <plat>-deal-<date>-<id>-tall.jpg) and Pinterest (1000×1500, -poster.jpg).
 //                                     Each item gets them as "pics"; jobs/social.js uses them, else the plain poster.
+//   node jobs/social-card.js deals resend   the same for data/social/resend-queue.json (.github/workflows/social-resend.yml)
 //
 // Writes data/social/img/<plat>-<week>-tall.jpg (1080×1350, Instagram and Pinterest) and -wide.jpg (1200×630, Bluesky
 // and Facebook). They're uploaded with the other files and served by the site at /social-img/<name> (functions/
@@ -120,14 +121,15 @@ const SITE = "https://gamedealtrack.com";
 // the platforms' logos, as the site shows them (its img/ph-*.png); a picture without it if it doesn't load
 const LOGO = { xbox: SITE + "/img/ph-xbox.png?v=2", ps: SITE + "/img/ph-ps.png" };
 const SHAPES = [["tall", 1080, 1350], ["poster", 1000, 1500]];
-async function dealCards(plat) {
-  const file = "social/" + plat + "-queue.json", q = read(file, { items: [] }), items = q.items || [];
+async function dealCards(name) {   // name: xbox, ps, or resend (its items say their store)
+  const file = "social/" + name + "-queue.json", q = read(file, { items: [] }), items = q.items || [];
   const todo = items.filter(it => it.deal && !it.pics);
   const out = path.join(DATA, "social", "img");
   fs.mkdirSync(out, { recursive: true });
   if (todo.length) {
     const b = await browser();
     for (const it of todo) {
+      const plat = it.plat === "ps" || it.plat === "xbox" ? it.plat : name;
       const base = plat + "-deal-" + new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + String(it.key).replace(/[^A-Za-z0-9]/g, "").slice(0, 40);
       const pics = {};
       for (const [shape, w, h] of SHAPES) {
@@ -146,7 +148,7 @@ async function dealCards(plat) {
     }
     await b.close();
     fs.writeFileSync(path.join(DATA, file), JSON.stringify(Object.assign(q, { items })));
-  } else console.log("Deal cards " + plat + ": nothing new in the queue");
+  } else console.log("Deal cards " + name + ": nothing new in the queue");
   // keep the deal pictures 14 days (a queued post waits at most a few days)
   const cutoff = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10).replace(/-/g, "");
   fs.readdirSync(out).forEach(f => { const m = f.match(/^(?:xbox|ps)-deal-(\d{8})-/); if (m && m[1] < cutoff) fs.unlinkSync(path.join(out, f)); });
@@ -191,6 +193,6 @@ async function main() {
 }
 if (require.main === module) {
   const [mode, plat] = process.argv.slice(2);
-  (mode === "deals" ? dealCards(plat === "ps" ? "ps" : "xbox") : main()).catch(e => { console.error("Social cards failed: " + e.message); process.exit(0); });
+  (mode === "deals" ? dealCards(plat === "ps" || plat === "resend" ? plat : "xbox") : main()).catch(e => { console.error("Social cards failed: " + e.message); process.exit(0); });
 }
 module.exports = { topFive };
