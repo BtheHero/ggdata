@@ -7,6 +7,8 @@
 // Writes flat tables, one JSON array each: workflows.json (each workflow's week), runs.json (each run), steps.json (each
 // step's own output), posts.json (each social post, network by network), queue.json (posts queued by the store runs).
 //
+// REPORT_CACHE=<file>: keeps the finished runs' details there and reads only new runs' jobs and logs next time.
+//
 // Needs the GitHub API: GITHUB_TOKEN (in Actions), or a proxy that signs the requests. GITHUB_REPOSITORY picks the repo
 // (default BtheHero/ggdata).
 const fs = require("fs"), path = require("path");
@@ -139,7 +141,12 @@ function changesFrom(lines) {
   }
   runs = runs.filter(r => Date.parse(r.created_at) >= from);
   console.log(runs.length + " runs since " + since);
+  const CACHE = process.env.REPORT_CACHE, cached = {};
+  if (CACHE) { try { JSON.parse(fs.readFileSync(CACHE, "utf8")).forEach(r => { cached[r.id + "-" + r.attempt] = r; }); } catch (e) {} }
+  let reused = 0;
   const detailed = await pool(runs, 8, async r => {
+    const hit = r.status === "completed" && cached[r.id + "-" + r.run_attempt];
+    if (hit && hit.status === "completed") { reused++; return hit; }
     const run = { id: r.id, wf: r.name, file: r.path.split("/").pop(), event: r.event, attempt: r.run_attempt, number: r.run_number,
       status: r.status, conclusion: r.conclusion, created: r.created_at, started: r.run_started_at,
       ended: r.status === "completed" ? r.updated_at : null, url: r.html_url, commit: (r.head_commit && r.head_commit.message || "").split("\n")[0],
@@ -165,10 +172,12 @@ function changesFrom(lines) {
     return run;
   });
   detailed.sort((a, b) => b.created.localeCompare(a.created));
+  if (CACHE) { fs.mkdirSync(path.dirname(path.resolve(CACHE)), { recursive: true }); fs.writeFileSync(CACHE, JSON.stringify(detailed.filter(r => r.status === "completed"))); }
+  console.log((runs.length - reused) + " runs read from GitHub, " + reused + " from the cache");
 
   const wfOut = wfs.map(w => {
     const mine = detailed.filter(r => r.file === w.file), done = mine.filter(r => r.status === "completed");
-    const sched = w.crons.length ? schedule(w.crons, Math.max(from, born[w.file] || 0), now) : { expected: null, next: null };
+    const sched = w.crons.length && born[w.file] ? schedule(w.crons, Math.max(from, born[w.file] || 0), now) : { expected: null, next: null };
     return Object.assign({}, w, {
       runs: mine.length, success: done.filter(r => r.conclusion === "success").length,
       failure: done.filter(r => r.conclusion === "failure").length,

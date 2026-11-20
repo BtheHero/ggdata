@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>ggdata Automation Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400&display=swap">
+<style>
+/* Report site: the dashboard's page (tools/report.js tables, drawn by the same code as the claude.ai version) on a small shim. */
+:root {
+  --color-bg: #f6f7f9; --color-panel: #ffffff; --color-fg: #16191f; --color-fg-muted: #5d6573; --color-border-line: #dde1e7;
+  --color-ok: #1f8a4c; --color-warn: #b7791f; --color-bad: #c53030;
+  --font-anthropic-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-anthropic-serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --cds-font-size-caption: 0.8125rem; --cds-font-size-body: 0.9375rem; --cds-font-size-heading: 1.125rem; --cds-font-size-title: 2rem;
+  --cds-font-weight-medium: 600;
+  --cds-gap-xs: 4px; --cds-gap-sm: 8px; --cds-gap-md: 12px; --cds-gap-lg: 20px; --cds-gap-xl: 36px;
+  --cds-pad-xs: 4px; --cds-pad-sm: 8px; --cds-pad-md: 12px; --cds-pad-lg: 16px; --cds-pad-xl: 24px;
+  --cds-radius: 8px;
+  --cds-chart-grid: #e6e9ee; --cds-chart-muted: #a3aab5; --cds-text-secondary: #5d6573;
+  --cds-surface-popover: #ffffff; --cds-border: #d3d8df; --cds-shadow-popover: 0 6px 20px rgba(20, 30, 50, .14);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #111318; --color-panel: #1a1d24; --color-fg: #e8eaee; --color-fg-muted: #9aa2ae; --color-border-line: #2c313b;
+    --color-ok: #4cc283; --color-warn: #e0a84a; --color-bad: #f07070;
+    --cds-chart-grid: #262b33; --cds-chart-muted: #6b7380; --cds-text-secondary: #9aa2ae;
+    --cds-surface-popover: #1f232b; --cds-border: #353b46; --cds-shadow-popover: 0 6px 20px rgba(0, 0, 0, .5);
+    color-scheme: dark;
+  }
+}
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--color-bg); color: var(--color-fg); font: 14px/1.45 var(--font-anthropic-sans);
+  padding: 32px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
+.gg-page { max-width: 1180px; margin: 0 auto; }
+.dash-select { font: inherit; font-size: var(--cds-font-size-caption); color: var(--color-fg); background-color: var(--color-panel);
+  border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: 5px 8px; }
+#gg-loading { color: var(--color-fg-muted); }
+</style>
+</head>
+<body>
+<div class="gg-page">
+<style>
+.gg { display: flex; flex-direction: column; gap: var(--cds-gap-xl); font-family: var(--font-anthropic-sans); color: var(--color-fg); }
+.gg h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+.gg h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; text-wrap: balance; }
+.gg p { margin: 0; }
+.gg-head { display: flex; flex-direction: column; gap: var(--cds-gap-sm); }
+.gg-lede { font-size: var(--cds-font-size-body); line-height: 1.55; max-width: 70ch; }
+.gg-muted { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+.gg-sec { display: flex; flex-direction: column; gap: var(--cds-gap-md); min-width: 0; }
+.gg-sec > header { display: flex; flex-direction: column; gap: var(--cds-gap-xs); }
+.gg-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--cds-gap-md); }
+.gg-tile { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-lg); display: flex; flex-direction: column; gap: var(--cds-gap-xs); min-width: 0; }
+.gg-tile .gg-label { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); letter-spacing: .02em; }
+.gg-big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: 2rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.gg-tile .gg-sub { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); font-variant-numeric: tabular-nums; }
+.gg-scroll { overflow-x: auto; min-width: 0; }
+.gg table { border-collapse: collapse; width: 100%; font-size: var(--cds-font-size-caption); font-variant-numeric: tabular-nums; }
+.gg th { text-align: left; font-weight: var(--cds-font-weight-medium); color: var(--color-fg-muted); padding: 6px 10px; border-bottom: 1px solid var(--color-border-line); white-space: nowrap; }
+.gg td { padding: 7px 10px; border-bottom: 1px solid var(--color-border-line); vertical-align: top; }
+.gg td.gg-num, .gg th.gg-num { text-align: right; }
+.gg td.gg-wrap { white-space: pre-wrap; word-break: break-word; min-width: 14rem; }
+.gg a { color: inherit; text-decoration: underline; text-decoration-color: var(--color-border-line); text-underline-offset: 2px; }
+.gg a:hover { text-decoration-color: currentColor; }
+.gg-pill { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px; font-size: var(--cds-font-size-caption); white-space: nowrap; border: 1px solid var(--color-border-line); }
+.gg-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--color-fg-muted); }
+.gg-pill.ok::before { background: var(--color-ok); }
+.gg-pill.bad::before { background: var(--color-bad); }
+.gg-pill.warn::before { background: var(--color-warn); }
+.gg-pill.ok { color: var(--color-fg); }
+.gg-pill.bad { color: var(--color-bad); border-color: var(--color-bad); }
+.gg-chart { position: relative; min-height: 300px; }
+.gg-chart svg text { fill: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); font-family: var(--font-anthropic-sans); }
+.gg-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border); box-shadow: var(--cds-shadow-popover); border-radius: var(--cds-radius); padding: 6px 10px; font-size: var(--cds-font-size-caption); max-width: 280px; z-index: 2; }
+.gg-tip b { display: block; font-weight: var(--cds-font-weight-medium); }
+.gg-legend { display: flex; flex-wrap: wrap; gap: var(--cds-gap-md); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.gg-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.gg-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.gg-controls { display: flex; flex-wrap: wrap; gap: var(--cds-gap-md); align-items: center; }
+.gg-controls label { display: inline-flex; gap: 6px; align-items: center; font-size: var(--cds-font-size-caption); }
+.gg-feed { display: flex; flex-direction: column; gap: var(--cds-gap-sm); min-height: 120px; }
+.gg-run { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); min-width: 0; }
+.gg-run > summary { list-style: none; cursor: pointer; padding: var(--cds-pad-md) var(--cds-pad-lg); display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.gg-run > summary::-webkit-details-marker { display: none; }
+.gg-run > summary:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+.gg-run-name { font-weight: var(--cds-font-weight-medium); }
+.gg-run-body { padding: 0 var(--cds-pad-lg) var(--cds-pad-lg); display: flex; flex-direction: column; gap: var(--cds-gap-md); min-width: 0; }
+.gg-pre { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; background: var(--color-bg); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius); padding: var(--cds-pad-sm) var(--cds-pad-md); max-height: 340px; overflow: auto; }
+.gg-step { border-top: 1px solid var(--color-border-line); padding-top: var(--cds-pad-sm); display: flex; flex-direction: column; gap: 6px; }
+.gg-step-h { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: var(--cds-font-size-caption); }
+.gg-btn { font: inherit; font-size: var(--cds-font-size-caption); padding: 6px 14px; border-radius: var(--cds-radius); border: 1px solid var(--color-border-line); background: var(--color-panel); color: var(--color-fg); cursor: pointer; align-self: flex-start; }
+.gg-btn:focus-visible { outline: 2px solid var(--color-fg); outline-offset: 2px; }
+.gg-empty { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); padding: var(--cds-pad-md) 0; }
+.gg-nets { display: flex; flex-wrap: wrap; gap: 4px; }
+.gg details.gg-foot summary { cursor: pointer; font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); }
+.gg details.gg-foot p { margin-top: var(--cds-gap-sm); font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); max-width: 70ch; line-height: 1.5; }
+</style>
+
+<div class="gg">
+  <header class="gg-head" id="top">
+    <h1>ggdata Automation Report</h1>
+    <p class="gg-lede"><span data-draw="lede-state">—</span> In the last 7 days <b data-draw="lede-ok" data-source="kpis" data-field="success" data-row="0">—</b> of <b data-draw="lede-done" data-source="kpis" data-field="done" data-row="0">—</b> finished runs succeeded and <b data-draw="lede-failed" data-source="kpis" data-field="failed" data-row="0">—</b> failed. <b data-draw="lede-posts" data-source="kpis" data-field="posts" data-row="0">—</b> social posts went out, <b data-draw="lede-alllive" data-source="kpis" data-field="postsAllLive" data-row="0">—</b> of them live on every network tried.</p>
+    <p class="gg-muted">Report made <span data-draw="generated" data-source="workflows" data-field="generatedAt" data-row="0">—</span> from the GitHub Actions runs of BtheHero/ggdata and their logs.</p>
+  </header>
+
+  <section class="gg-tiles" id="kpis" aria-label="Summary">
+    <div class="gg-tile" id="kpi-runs"><span class="gg-label">Runs, last 7 days</span><span class="gg-big" data-draw="k-runs" data-source="kpis" data-field="runs" data-row="0">—</span><span class="gg-sub"><span data-draw="k-running" data-source="kpis" data-field="running" data-row="0">—</span> still running</span></div>
+    <div class="gg-tile" id="kpi-rate"><span class="gg-label">Success rate</span><span class="gg-big" data-draw="k-rate" data-source="kpis" data-field="successRate" data-row="0">—</span><span class="gg-sub">of finished runs</span></div>
+    <div class="gg-tile" id="kpi-failed"><span class="gg-label">Failed or cancelled</span><span class="gg-big" data-draw="k-failed" data-source="kpis" data-field="notOk" data-row="0">—</span><span class="gg-sub"><span data-draw="k-missed" data-source="kpis" data-field="missed" data-row="0">—</span> scheduled runs that never started</span></div>
+    <div class="gg-tile" id="kpi-posts"><span class="gg-label">Social posts</span><span class="gg-big" data-draw="k-posts" data-source="kpis" data-field="posts" data-row="0">—</span><span class="gg-sub"><span data-draw="k-postfail" data-source="kpis" data-field="postsProblem" data-row="0">—</span> with a network that failed</span></div>
+    <div class="gg-tile" id="kpi-queue"><span class="gg-label">Posts waiting in the queue</span><span class="gg-big" data-draw="k-waiting" data-source="kpis" data-field="waiting" data-row="0">—</span><span class="gg-sub">at the last queue run, <span data-draw="k-waiting-at">—</span></span></div>
+  </section>
+
+  <section class="gg-sec" id="workflows">
+    <header><h2>Workflows</h2><p class="gg-muted">Each automatic job over the last 7 days. Missed counts scheduled runs GitHub never started.</p></header>
+    <div class="gg-scroll">
+      <table data-source="workflows" data-row-key="workflow" aria-label="Workflows">
+        <thead><tr><th data-field="workflow">Workflow</th><th data-field="lastResult">Last run</th><th data-field="lastAt">When</th><th class="gg-num" data-field="runs">Runs</th><th class="gg-num" data-field="success">OK</th><th class="gg-num" data-field="failure">Failed</th><th class="gg-num" data-field="missed">Missed</th><th class="gg-num" data-field="avgMinutes">Avg min</th><th data-field="schedule">Schedule</th><th data-field="next">Next</th></tr></thead>
+        <tbody data-draw="wf-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="gg-sec" id="timeline">
+    <header><h2>Every run, last 7 days</h2><p class="gg-muted">One dot per run. Point at a dot for its details; click to open it on GitHub.</p></header>
+    <div class="gg-legend"><span><i style="background: var(--color-ok)"></i>Succeeded</span><span><i style="background: var(--color-bad)"></i>Failed</span><span><i style="background: var(--color-warn)"></i>Cancelled</span><span><i style="background: var(--cds-chart-muted)"></i>Running or skipped</span></div>
+    <div class="gg-chart" data-draw="timeline" data-source="runs workflows"></div>
+  </section>
+
+  <section class="gg-sec" id="problems">
+    <header><h2>Problems</h2><p class="gg-muted">Runs that failed or were cancelled, and runs that succeeded but logged a failure (a region not updated, a network that refused a post).</p></header>
+    <div class="gg-scroll">
+      <table data-source="runs" data-row-key="id" aria-label="Problems">
+        <thead><tr><th data-field="started">When</th><th data-field="workflow">Workflow</th><th data-field="result">Result</th><th data-field="failedSteps">Failed step</th><th data-field="problems">What the log says</th></tr></thead>
+        <tbody data-draw="problem-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="gg-sec" id="social">
+    <header><h2>Social media posts</h2><p class="gg-muted">Each post and whether it went live on Bluesky, Facebook, Instagram, Pinterest and X.</p></header>
+    <div class="gg-scroll">
+      <table data-source="posts" data-row-key="key" aria-label="Social posts">
+        <thead><tr><th data-field="time">When</th><th data-field="title">Post</th><th data-field="status">Status</th><th data-field="bluesky">Bluesky</th><th data-field="facebook">Facebook</th><th data-field="instagram">Instagram</th><th data-field="pinterest">Pinterest</th><th data-field="x">X</th><th data-field="errors">Errors</th></tr></thead>
+        <tbody data-draw="post-rows"></tbody>
+      </table>
+    </div>
+    <h2 id="queued">Deals queued by the store runs</h2>
+    <div class="gg-scroll">
+      <table data-source="queue" data-row-key="key" aria-label="Queued deals">
+        <thead><tr><th data-field="time">When</th><th data-field="workflow">Run</th><th data-field="queue">Queue</th><th class="gg-num" data-field="added">Added</th><th class="gg-num" data-field="waiting">Waiting after</th></tr></thead>
+        <tbody data-draw="queue-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="gg-sec" id="runlog">
+    <header><h2>What each run did</h2><p class="gg-muted">The run's own summary lines: games and prices found, regions updated, files uploaded. Open a run for every step's output.</p></header>
+    <div class="gg-controls">
+      <label for="gg-filter">Workflow <select id="gg-filter" class="dash-select" data-draw="feed-filter" data-source="workflows" aria-label="Workflow"></select></label>
+      <label for="gg-only"><input type="checkbox" id="gg-only"> Only runs with problems</label>
+      <label for="gg-quiet"><input type="checkbox" id="gg-quiet" checked> Hide social queue runs that posted nothing</label>
+    </div>
+    <div class="gg-feed" data-draw="feed" data-source="runs steps"></div>
+    <button type="button" class="gg-btn" id="gg-more">Show more runs</button>
+  </section>
+
+  <details class="gg-foot" id="about">
+    <summary>How this report is made</summary>
+    <p>tools/report.js in the ggdata repository reads every GitHub Actions run of the last 7 days, its jobs and its log. Success and failure are GitHub's. Social posts come from the posting lines in the Social queue, Social resend and Social weekly logs. Files uploaded come from the upload step; newer runs also list the folders and the new files. Expected runs are worked out from each workflow's cron schedule since the workflow was added.</p>
+  </details>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script>
+// The few calls of the claude.ai dashboard that the page uses, over data/*.json beside it.
+window.dash = (() => {
+  const src = {}, calcs = {}, draws = {};
+  const data = (id) => {
+    if (calcs[id]) {
+      const ins = calcs[id].inputs.map(data), bad = ins.find((x) => x.status !== 'ok');
+      return bad ? { status: bad.status, data: null } : { status: 'ok', data: calcs[id].fn(...ins.map((x) => x.data)) };
+    }
+    return src[id] || { status: 'loading', data: [] };
+  };
+  const run = (name) => document.querySelectorAll('[data-draw="' + name + '"]').forEach((el) => {
+    try { draws[name](el); } catch (e) { console.error(name, e); }
+  });
+  return {
+    data,
+    calc: (id, o) => { calcs[id] = o; },
+    draw: (name, fn) => { if (fn) draws[name] = fn; run(name); },
+    load: async (ids) => {
+      await Promise.all(ids.map(async (id) => {
+        try {
+          const r = await fetch('data/' + id + '.json', { cache: 'no-store' });
+          if (!r.ok) throw new Error(r.status);
+          src[id] = { status: 'ok', data: await r.json() };
+        } catch (e) { src[id] = { status: 'error', data: [] }; }
+      }));
+      Object.keys(draws).forEach(run);
+    },
+  };
+})();
+</script>
+<script>
+dash.calc('kpis', {
+  title: 'Summary figures',
+  description: 'Run and post counts over the report window, and the latest queue size.',
+  inputs: ['runs', 'posts', 'workflows'],
+  fn: (runs, posts, workflows) => {
+    const done = runs.filter((r) => !['in_progress', 'queued', 'waiting', 'requested'].includes(r.result));
+    const success = done.filter((r) => r.result === 'success').length;
+    const failed = done.filter((r) => r.result === 'failure').length;
+    const q = runs.find((r) => r.workflow === 'Social queue' && r.waiting != null);
+    return [{
+      runs: runs.length, done: done.length, running: runs.length - done.length, success, failed,
+      notOk: done.filter((r) => r.result !== 'success' && r.result !== 'skipped').length,
+      successRate: done.length ? Math.round((1000 * success) / done.length) / 10 : null,
+      missed: workflows.reduce((s, w) => s + (Number(w.missed) || 0), 0),
+      posts: posts.length,
+      postsAllLive: posts.filter((p) => p.status === 'posted').length,
+      postsProblem: posts.filter((p) => p.status !== 'posted').length,
+      waiting: q ? q.waiting : null,
+      waitingAt: q ? q.ended || q.started : null,
+    }];
+  },
+});
+
+window.gg = (() => {
+  const fmt = d3.timeFormat('%a %d %b, %H:%M');
+  const when = (s) => (s ? fmt(new Date(s)) : '—');
+  const ago = (s) => {
+    if (!s) return '';
+    const m = Math.round((Date.now() - Date.parse(s)) / 60000);
+    return m < 0 ? 'in ' + (m > -90 ? -m + ' min' : Math.round(-m / 60) + ' h') : m < 90 ? m + ' min ago' : m < 2880 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago';
+  };
+  const tone = (r) => (r === 'success' || r === 'posted' || r === 'live' ? 'ok' : r === 'failure' || r === 'failed' ? 'bad' : r === 'cancelled' || r === 'partial' || r === 'timed_out' ? 'warn' : '');
+  const words = { success: 'Succeeded', failure: 'Failed', cancelled: 'Cancelled', in_progress: 'Running', queued: 'Queued', skipped: 'Skipped', timed_out: 'Timed out', posted: 'Live everywhere', partial: 'Partly live', failed: 'Not posted', live: 'Live', 'not tried': 'Not tried', 'no runs': 'No runs' };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const pill = (r) => el('span', 'gg-pill ' + tone(r), words[r] || r || '—');
+  const link = (url, text) => {
+    if (!/^https?:\/\//.test(url || '')) return el('span', null, text);
+    const a = el('a', null, text); a.href = url; a.target = '_blank'; a.rel = 'noopener'; return a;
+  };
+  const num = (v, digits) => (v == null || v === '' ? '—' : d3.format(digits ? ',.' + digits + 'f' : ',')(Number(v)));
+  const state = { filter: '', only: false, quiet: true, limit: 25 };
+  const hasProblem = (r) => (r.result !== 'success' && r.result !== 'in_progress' && r.result !== 'queued') || !!r.problems;
+  return { when, ago, tone, words, el, pill, link, num, state, hasProblem };
+})();
+
+// the headline
+const kpi = (name, field, format) => dash.draw(name, (e) => {
+  const k = dash.data('kpis');
+  const row = k.status === 'ok' && k.data && k.data[0];
+  e.textContent = row && row[field] != null ? format(row[field]) : '—';
+});
+kpi('lede-ok', 'success', gg.num); kpi('lede-done', 'done', gg.num); kpi('lede-failed', 'failed', gg.num);
+kpi('lede-posts', 'posts', gg.num); kpi('lede-alllive', 'postsAllLive', gg.num);
+kpi('k-runs', 'runs', gg.num); kpi('k-running', 'running', gg.num);
+kpi('k-rate', 'successRate', (v) => d3.format('.1f')(v) + '%');
+kpi('k-failed', 'notOk', gg.num); kpi('k-missed', 'missed', gg.num);
+kpi('k-posts', 'posts', gg.num); kpi('k-postfail', 'postsProblem', gg.num);
+kpi('k-waiting', 'waiting', gg.num); kpi('k-waiting-at', 'waitingAt', gg.ago);
+
+dash.draw('lede-state', (e) => {
+  const k = dash.data('kpis'), w = dash.data('workflows');
+  if (k.status !== 'ok' || !k.data || w.status !== 'ok') { e.textContent = '—'; return; }
+  const broken = w.data.filter((x) => x.lastResult === 'failure').map((x) => x.workflow);
+  e.textContent = broken.length
+    ? 'Needs attention: the last run of ' + broken.join(', ') + (broken.length > 1 ? ' failed.' : ' failed.')
+    : 'All good: the last run of every workflow succeeded.';
+});
+dash.draw('generated', (e) => {
+  const w = dash.data('workflows');
+  e.textContent = w.status === 'ok' && w.data[0] ? gg.when(w.data[0].generatedAt) + ' (' + gg.ago(w.data[0].generatedAt) + ')' : '—';
+});
+
+// workflows table
+dash.draw('wf-rows', (tb) => {
+  const w = dash.data('workflows');
+  if (w.status === 'error') { tb.replaceChildren(); const tr = gg.el('tr'); const td = gg.el('td', 'gg-empty', 'The workflow list did not load.'); td.colSpan = 10; tr.append(td); tb.append(tr); return; }
+  const rows = w.status === 'ok' ? w.data.slice().sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || '')) : [];
+  tb.replaceChildren(...rows.map((r) => {
+    const tr = gg.el('tr');
+    const name = gg.el('td'); name.append(gg.el('div', null, r.workflow));
+    const last = gg.el('td'); last.append(r.lastUrl ? gg.link(r.lastUrl, '') : gg.el('span')); last.firstChild.append(gg.pill(r.lastResult));
+    const missed = gg.el('td', 'gg-num', gg.num(r.missed)); if (Number(r.missed) > 0) missed.style.color = 'var(--color-warn)';
+    const failed = gg.el('td', 'gg-num', gg.num(r.failure)); if (Number(r.failure) > 0) failed.style.color = 'var(--color-bad)';
+    tr.append(name, last, gg.el('td', null, r.lastAt ? gg.ago(r.lastAt) : '—'), gg.el('td', 'gg-num', gg.num(r.runs)), gg.el('td', 'gg-num', gg.num(r.success)),
+      failed, missed, gg.el('td', 'gg-num', gg.num(r.avgMinutes, 1)), gg.el('td', null, r.schedule || '—'), gg.el('td', null, r.next ? gg.ago(r.next) : '—'));
+    return tr;
+  }));
+});
+
+// timeline: one row per workflow, one dot per run
+dash.draw('timeline', (box) => {
+  const r = dash.data('runs'), w = dash.data('workflows');
+  if (r.status === 'error' || w.status === 'error') { box.replaceChildren(gg.el('p', 'gg-empty', 'The runs did not load, so the timeline is empty.')); return; }
+  if (r.status !== 'ok' || w.status !== 'ok') { box.replaceChildren(); return; }
+  const names = w.data.filter((x) => x.runs > 0).map((x) => x.workflow);
+  const width = box.clientWidth || 600, rowH = 28, top = 8, bottom = 26;
+  const end = Date.parse(w.data[0].generatedAt), start = end - 7 * 864e5;
+  const svg = d3.create('svg').attr('width', '100%').attr('height', top + names.length * rowH + bottom).attr('role', 'img')
+    .attr('aria-label', 'Each workflow run of the last 7 days by time, colored by result');
+  box.replaceChildren(svg.node());
+  const labels = svg.append('g').selectAll('text').data(names).join('text').text((d) => d).attr('y', (d, i) => top + i * rowH + rowH / 2).attr('dy', '0.35em');
+  let left = 0; labels.each(function () { left = Math.max(left, this.getComputedTextLength()); });
+  left = Math.min(left + 12, width * 0.4);
+  if (width < 480) { labels.attr('x', 0).attr('y', (d, i) => top + i * rowH + 9).attr('dy', 0); left = 4; } else labels.attr('x', 0);
+  const x = d3.scaleTime().domain([start, end]).range([left, width - 10]);
+  const days = d3.timeDay.range(new Date(start), new Date(end));
+  svg.append('g').selectAll('line').data(days).join('line').attr('x1', (d) => x(d)).attr('x2', (d) => x(d)).attr('y1', top).attr('y2', top + names.length * rowH)
+    .style('stroke', 'var(--cds-chart-grid)');
+  svg.append('g').selectAll('line').data(names).join('line').attr('x1', left).attr('x2', width - 10)
+    .attr('y1', (d, i) => top + i * rowH + rowH / 2 + (width < 480 ? 6 : 0)).attr('y2', (d, i) => top + i * rowH + rowH / 2 + (width < 480 ? 6 : 0)).style('stroke', 'var(--cds-chart-grid)');
+  const ax = svg.append('g').attr('transform', 'translate(0,' + (top + names.length * rowH + 4) + ')')
+    .call(d3.axisBottom(x).ticks(d3.timeDay.every(width < 560 ? 2 : 1)).tickFormat(d3.timeFormat('%a %d')).tickSize(0));
+  ax.select('.domain').remove();
+  const color = (res) => res === 'success' ? 'var(--color-ok)' : res === 'failure' ? 'var(--color-bad)' : res === 'cancelled' || res === 'timed_out' ? 'var(--color-warn)' : 'var(--cds-chart-muted)';
+  const tip = gg.el('div', 'gg-tip'); tip.hidden = true; box.append(tip);
+  const runs = r.data.filter((d) => names.includes(d.workflow) && Date.parse(d.started) >= start);
+  const cy = (d) => top + names.indexOf(d.workflow) * rowH + rowH / 2 + (width < 480 ? 6 : 0);
+  svg.append('g').selectAll('circle').data(runs).join('circle')
+    .attr('cx', (d) => x(Date.parse(d.started))).attr('cy', cy).attr('r', 5)
+    .style('fill', (d) => color(d.result)).style('stroke', 'var(--color-bg)').style('stroke-width', 1.5).style('cursor', 'pointer')
+    .on('pointerenter', function (ev, d) {
+      tip.replaceChildren(gg.el('b', null, d.workflow + ': ' + (gg.words[d.result] || d.result)),
+        gg.el('span', null, gg.when(d.started) + (d.minutes != null ? ' · ' + d.minutes + ' min' : '')),
+        ...(d.failedSteps ? [gg.el('div', null, 'Failed: ' + d.failedSteps)] : []),
+        ...(d.uploaded ? [gg.el('div', null, d.uploaded + ' files uploaded')] : []),
+        ...(d.posts ? [gg.el('div', null, d.posts + ' social post' + (d.posts > 1 ? 's' : ''))] : []));
+      tip.hidden = false;
+      const bx = box.getBoundingClientRect(), cx = ev.clientX - bx.left, cyy = ev.clientY - bx.top;
+      tip.style.left = Math.max(0, Math.min(cx + 12, box.clientWidth - tip.offsetWidth)) + 'px';
+      tip.style.top = Math.max(0, cyy - tip.offsetHeight - 10) + 'px';
+      d3.select(this).attr('r', 7);
+    })
+    .on('pointerleave', function () { tip.hidden = true; d3.select(this).attr('r', 5); })
+    .on('click', (ev, d) => { if (/^https:\/\//.test(d.url)) window.open(d.url, '_blank', 'noopener'); });
+});
+
+// problems
+dash.draw('problem-rows', (tb) => {
+  const r = dash.data('runs');
+  if (r.status === 'error') { tb.replaceChildren(); return; }
+  const rows = r.status === 'ok' ? r.data.filter(gg.hasProblem) : [];
+  if (r.status === 'ok' && !rows.length) { const tr = gg.el('tr'); const td = gg.el('td', 'gg-empty', 'No problems in the last 7 days.'); td.colSpan = 5; tr.append(td); tb.replaceChildren(tr); return; }
+  tb.replaceChildren(...rows.map((d) => {
+    const tr = gg.el('tr'); tr.dataset.key = d.id;
+    const res = gg.el('td'); res.append(gg.pill(d.result));
+    const when = gg.el('td'); when.append(gg.link(d.url, gg.when(d.started)));
+    tr.append(when, gg.el('td', null, d.workflow), res, gg.el('td', null, d.failedSteps || '—'), gg.el('td', 'gg-wrap', d.problems || '—'));
+    return tr;
+  }));
+});
+
+// social posts
+dash.draw('post-rows', (tb) => {
+  const p = dash.data('posts');
+  if (p.status === 'error') { tb.replaceChildren(); return; }
+  const rows = p.status === 'ok' ? p.data : [];
+  if (p.status === 'ok' && !rows.length) { const tr = gg.el('tr'); const td = gg.el('td', 'gg-empty', 'No posts in the last 7 days.'); td.colSpan = 9; tr.append(td); tb.replaceChildren(tr); return; }
+  tb.replaceChildren(...rows.map((d) => {
+    const tr = gg.el('tr'); tr.dataset.key = d.key;
+    const when = gg.el('td'); when.append(gg.link(d.url, gg.when(d.time)));
+    const title = gg.el('td'); title.append(gg.el('div', null, d.title), gg.el('div', 'gg-muted', d.workflow));
+    const st = gg.el('td'); st.append(gg.pill(d.status));
+    const nets = ['bluesky', 'facebook', 'instagram', 'pinterest', 'x'].map((n) => { const td = gg.el('td'); td.append(gg.pill(d[n])); return td; });
+    tr.append(when, title, st, ...nets, gg.el('td', 'gg-wrap', d.errors || '—'));
+    return tr;
+  }));
+});
+dash.draw('queue-rows', (tb) => {
+  const q = dash.data('queue');
+  if (q.status === 'error') { tb.replaceChildren(); return; }
+  const rows = q.status === 'ok' ? q.data : [];
+  if (q.status === 'ok' && !rows.length) { const tr = gg.el('tr'); const td = gg.el('td', 'gg-empty', 'No deals queued in the last 7 days.'); td.colSpan = 5; tr.append(td); tb.replaceChildren(tr); return; }
+  tb.replaceChildren(...rows.map((d) => {
+    const tr = gg.el('tr'); tr.dataset.key = String(d.key);
+    const when = gg.el('td'); when.append(gg.link(d.url, gg.when(d.time)));
+    tr.append(when, gg.el('td', null, d.workflow), gg.el('td', null, d.queue), gg.el('td', 'gg-num', gg.num(d.added)), gg.el('td', 'gg-num', gg.num(d.waiting)));
+    return tr;
+  }));
+});
+
+// the run log
+dash.draw('feed-filter', (sel) => {
+  const w = dash.data('workflows');
+  const names = w.status === 'ok' ? w.data.filter((x) => x.runs > 0).map((x) => x.workflow).sort() : [];
+  sel.replaceChildren(new Option('All workflows', ''), ...names.map((n) => new Option(n, n)));
+  sel.value = gg.state.filter;
+  sel.onchange = () => { gg.state.filter = sel.value; gg.state.limit = 25; dash.draw('feed'); };
+});
+dash.draw('feed', (box) => {
+  const r = dash.data('runs'), s = dash.data('steps');
+  if (r.status === 'error') { box.replaceChildren(gg.el('p', 'gg-empty', 'The runs did not load.')); return; }
+  if (r.status !== 'ok') { box.replaceChildren(); return; }
+  const st = gg.state;
+  const all = r.data.filter((d) => (!st.filter || d.workflow === st.filter) && (!st.only || gg.hasProblem(d)) &&
+    !(st.quiet && d.workflow === 'Social queue' && !d.posts && !gg.hasProblem(d)));
+  const shown = all.slice(0, st.limit);
+  document.querySelectorAll('#gg-more').forEach((b) => { b.hidden = all.length <= st.limit; });
+  if (!shown.length) { box.replaceChildren(gg.el('p', 'gg-empty', 'No runs match.')); return; }
+  const steps = s.status === 'ok' ? d3.group(s.data, (x) => x.run) : new Map();
+  box.replaceChildren(...shown.map((d) => {
+    const det = gg.el('details', 'gg-run');
+    const sum = gg.el('summary');
+    const name = gg.el('span', 'gg-run-name', d.workflow);
+    const t = gg.el('span', 'gg-muted', gg.when(d.started) + (d.minutes != null ? ' · ' + d.minutes + ' min' : ''));
+    sum.append(gg.pill(d.result), name, t);
+    if (d.uploaded) { const u = gg.el('span', 'gg-muted'); const n = gg.el('span', null, gg.num(d.uploaded)); n.dataset.source = 'runs'; n.dataset.field = 'uploaded'; n.dataset.where = 'id=' + d.id; u.append(n, ' files uploaded'); sum.append(u); }
+    if (d.posts) { const u = gg.el('span', 'gg-muted'); const n = gg.el('span', null, gg.num(d.posts)); n.dataset.source = 'runs'; n.dataset.field = 'posts'; n.dataset.where = 'id=' + d.id; u.append(n, d.posts > 1 ? ' posts' : ' post'); sum.append(u); }
+    det.append(sum);
+    det.addEventListener('toggle', () => {
+      if (!det.open || det.dataset.filled) return;
+      det.dataset.filled = '1';
+      const body = gg.el('div', 'gg-run-body');
+      const links = gg.el('div', 'gg-muted'); links.append(gg.link(d.url, 'Open this run on GitHub'), ' · ', d.event + ' · ' + (d.commit || ''));
+      body.append(links);
+      if (d.summary) { const pre = gg.el('pre', 'gg-pre', d.summary); pre.dataset.source = 'runs'; pre.dataset.field = 'summary'; pre.dataset.where = 'id=' + d.id; body.append(pre); }
+      if (d.folders) { const f = gg.el('p', 'gg-muted', 'Uploaded by folder: ' + d.folders + (d.newFiles ? '. New files: ' + d.newFiles : '')); f.dataset.source = 'runs'; f.dataset.field = 'folders'; f.dataset.where = 'id=' + d.id; body.append(f); }
+      if (d.problems) { const pre = gg.el('pre', 'gg-pre', d.problems); pre.style.borderColor = 'var(--color-bad)'; body.append(pre); }
+      (steps.get(d.id) || []).forEach((x) => {
+        const sd = gg.el('div', 'gg-step');
+        const h = gg.el('div', 'gg-step-h'); h.append(gg.pill(x.result), gg.el('b', null, x.step), gg.el('span', 'gg-muted', x.seconds != null ? Math.round(x.seconds) + ' s' : ''));
+        sd.append(h);
+        if (x.output) { const pre = gg.el('pre', 'gg-pre', x.output + (x.lines > x.output.split('\n').length ? '\n(' + x.lines + ' lines in all; the important ones and the last 20 shown)' : '')); pre.dataset.source = 'steps'; pre.dataset.field = 'output'; pre.dataset.where = 'key=' + encodeURIComponent(x.key); sd.append(pre); }
+        body.append(sd);
+      });
+      det.append(body);
+    });
+    return det;
+  }));
+});
+
+document.querySelectorAll('#gg-only').forEach((c) => c.addEventListener('change', () => { gg.state.only = c.checked; gg.state.limit = 25; dash.draw('feed'); }));
+document.querySelectorAll('#gg-quiet').forEach((c) => c.addEventListener('change', () => { gg.state.quiet = c.checked; gg.state.limit = 25; dash.draw('feed'); }));
+document.querySelectorAll('#gg-more').forEach((b) => b.addEventListener('click', () => { gg.state.limit += 25; dash.draw('feed'); }));
+</script>
+<script>
+dash.load(['workflows', 'runs', 'steps', 'posts', 'queue']);
+let ggResize; let ggWidth = document.body.clientWidth;
+window.addEventListener('resize', () => {
+  clearTimeout(ggResize);
+  ggResize = setTimeout(() => { if (document.body.clientWidth !== ggWidth) { ggWidth = document.body.clientWidth; dash.draw('timeline'); } }, 150);
+});
+</script>
+</div>
+</body>
+</html>
