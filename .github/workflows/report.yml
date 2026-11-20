@@ -1,0 +1,54 @@
+# The automation report (tools/report.js): every run of the last 7 days, what it did, and the social posts network by
+# network, as a password-protected site on Cloudflare Pages (report-site/; the password check is
+# report-site/functions/_middleware.js). Every 6 hours, and by hand. It doesn't touch the site's data or the R2 bucket.
+# Secrets: CLOUDFLARE_API_TOKEN (Account → Cloudflare Pages → Edit), CLOUDFLARE_ACCOUNT_ID, REPORT_PASSWORD.
+name: Report
+on:
+  schedule:
+    - cron: "29 */6 * * *"
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: report
+  cancel-in-progress: true
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Runs already read
+        uses: actions/cache/restore@v4
+        with:
+          path: .report-cache
+          key: report-${{ github.run_id }}
+          restore-keys: report-
+      - name: Build the report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPORT_CACHE: .report-cache/runs.json
+        run: node tools/report.js report-site/public/data
+      - name: Keep the runs read
+        uses: actions/cache/save@v4
+        with:
+          path: .report-cache
+          key: report-${{ github.run_id }}
+      - name: Publish to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          REPORT_PASSWORD: ${{ secrets.REPORT_PASSWORD }}
+        working-directory: report-site
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$REPORT_PASSWORD" ]; then
+            echo "::error::Set the CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and REPORT_PASSWORD secrets"; exit 1
+          fi
+          W="npx --yes wrangler@4.42.0"
+          $W pages project list | grep -q "ggdata-report" || $W pages project create ggdata-report --production-branch main
+          printf '%s' "$REPORT_PASSWORD" | $W pages secret put REPORT_PASSWORD --project-name ggdata-report
+          $W pages deploy public --project-name ggdata-report --branch main --commit-dirty=true
