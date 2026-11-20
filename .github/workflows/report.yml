@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 22
       - name: Runs already read
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: .report-cache
           key: report-${{ github.run_id }}
@@ -34,7 +34,7 @@ jobs:
           REPORT_CACHE: .report-cache/runs.json
         run: node tools/report.js report-site/public/data
       - name: Keep the runs read
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: .report-cache
           key: report-${{ github.run_id }}
@@ -47,6 +47,18 @@ jobs:
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$REPORT_PASSWORD" ]; then
             echo "::error::Set the CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and REPORT_PASSWORD secrets"; exit 1
+          fi
+          # secrets pasted with a space or a line break around them
+          export CLOUDFLARE_API_TOKEN="$(printf '%s' "$CLOUDFLARE_API_TOKEN" | tr -d '[:space:]')"
+          export CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | tr -d '[:space:]')"
+          # say which part is wrong: the token itself, or its access to Pages on this account
+          CF=https://api.cloudflare.com/client/v4
+          if ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/user/tokens/verify" | grep -q '"status":"active"'; then
+            echo "::error::CLOUDFLARE_API_TOKEN isn't a valid, active API token (an API token from My Profile → API Tokens, not the Global API Key)"; exit 1
+          fi
+          case "$CLOUDFLARE_ACCOUNT_ID" in *[!0-9a-f]*|"") echo "::error::CLOUDFLARE_ACCOUNT_ID should be 32 characters, 0-9 and a-f"; exit 1;; esac
+          if ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects" | grep -q '"success":true'; then
+            echo "::error::The token is valid but can't use Cloudflare Pages on the account in CLOUDFLARE_ACCOUNT_ID: give it Account → Cloudflare Pages → Edit, with Account Resources including this account, and check CLOUDFLARE_ACCOUNT_ID"; exit 1
           fi
           W="npx --yes wrangler@4.42.0"
           $W pages project list | grep -q "ggdata-report" || $W pages project create ggdata-report --production-branch main
