@@ -461,7 +461,11 @@ function psFullGames_(list, cache) {
       let d = null;
       try { const r = res[k]; if (r && r.getResponseCode() === 200) d = JSON.parse(r.getContentText()).data; } catch (e) {}
       const prods = ((((d || {}).conceptRetrieve || {}).selectableProducts || {}).purchasableProducts) || [];
-      const full = prods.filter(p => p && p.id && p.storeDisplayClassification === "FULL_GAME" && !PS_DEMO.test(p.name || ""));
+      // (a free "full game" on a paid game's page is a starter or trial: Train Sim World 7's Free Starter Edition)
+      const paid = p => { const pr = p.price || {}; return !pr.isFree && (psPrice_(pr.basePrice) || 0) > 0; };
+      const free = !!(c.price && c.price.isFree);
+      const full = prods.filter(p => p && p.id && p.storeDisplayClassification === "FULL_GAME" && !PS_DEMO.test(p.name || "") &&
+        (free || paid(p) || !prods.some(paid)) && !/\b(starter|free to start|trial)\b/i.test(p.name || ""));
       if (full.length !== 1) return;
       const p = full[0], pr = p.price || {}, base = psPrice_(pr.basePrice), disc = psPrice_(pr.discountedPrice);
       const price = disc === null || pr.isTiedToSubscription || pr.isExclusive ? base : disc;
