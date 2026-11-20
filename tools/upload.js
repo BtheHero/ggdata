@@ -35,6 +35,10 @@ if (process.argv[2] === "snapshot") {
   changed.forEach(f => { const to = path.join(stage, f); fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(path.join(DATA, f), to); });
   if (changed.length) aws(["s3", "sync", stage, BUCKET, "--content-type", "application/json"]);
   console.log("Uploaded " + changed.length + " changed files" + (changed.length ? ": " + changed.slice(0, 12).join(", ") + (changed.length > 12 ? "…" : "") : ""));
+  // for the report (tools/report.js): the changes by folder, and the files that are new
+  const byFolder = {}, added = changed.filter(f => !snap.sums[f]);
+  changed.forEach(f => { const d = f.includes("/") ? f.split("/")[0] + "/" : "(top)", b = byFolder[d] || (byFolder[d] = { new: 0, updated: 0 }); b[snap.sums[f] ? "updated" : "new"]++; });
+  if (changed.length) console.log("Changes: " + JSON.stringify({ byFolder, new: added.slice(0, 40) }));
   // _props.json: the bucket's current copy, with this job's new or changed keys on top
   const mine = readJson(path.join(DATA, "_props.json"), {}), was = snap.props || {};
   const keys = Object.keys(mine).filter(k => was[k] !== mine[k]);
