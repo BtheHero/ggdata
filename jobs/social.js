@@ -136,6 +136,15 @@ function reviewsOf(plat, id) {
 const gameKey = t => String(t).toLowerCase().replace(/[™®©]/g, "").replace(/\b(standard|deluxe|ultimate|premium|gold|complete|definitive|digital|special|game of the year|goty|enhanced|anniversary|cross-gen)\b( edition| bundle)?/g, " ")
   .replace(/\bedition\b|\bbundle\b|\(pc\)|\bfor (windows|pc)\b|\bwindows\b|\bpc\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
 const ADDON_TITLE = /\b(season pass|dlc|expansion pass|soundtrack|costume|character pack|add-?on|upgrade|points|coins|currency|v-bucks|crowns)\b/i;
+// one deal's post (and its picture's facts: jobs/social-card.js deals)
+function dealPost(plat, g) {
+  const p = { price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD" }, pct = pctOff(p);
+  const head = "🔥 " + g.title + ": " + pct + "% off on " + PLAT[plat].name;
+  const line = [money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")", endsLine(g.saleEnds)].filter(Boolean).join("\n");
+  return { key: g.productId, title: g.title + " – " + pct + "% off (" + PLAT[plat].name + ")", head, line,
+    url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), poster: fullImg(g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags, ends: g.saleEnds || "",
+    deal: { price: p.price, msrp: p.msrp, currency: p.currency, pct, ends: g.saleEnds || "" } };   // for its pictures (jobs/social-card.js deals)
+}
 function dealPosts(plat) {
   const posted = read("social/" + plat + "-posted.json", {});
   const cutoff = new Date(Date.now() - REPOST_DAYS * 864e5).toISOString().slice(0, 10);
@@ -156,14 +165,7 @@ function dealPosts(plat) {
     if (picked.length >= MAX_DEALS) break;
   }
   return {
-    posts: picked.map(g => {
-      const p = { price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD" }, pct = pctOff(p);
-      const head = "🔥 " + g.title + ": " + pct + "% off on " + PLAT[plat].name;
-      const line = [money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")", endsLine(g.saleEnds)].filter(Boolean).join("\n");
-      return { key: g.productId, title: g.title + " – " + pct + "% off (" + PLAT[plat].name + ")", head, line,
-        url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), poster: fullImg(g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags, ends: g.saleEnds || "",
-        deal: { price: p.price, msrp: p.msrp, currency: p.currency, pct, ends: g.saleEnds || "" } };   // for its pictures (jobs/social-card.js deals)
-    }),
+    posts: picked.map(g => dealPost(plat, g)),
     remember: keys => { picked.filter(g => keys.includes(g.productId)).forEach(g => { posted[g.productId] = posted["t:" + gameKey(g.title)] = today(); });
       Object.keys(posted).forEach(k => { if (posted[k] < cutoff) delete posted[k]; });
       write("social/" + plat + "-posted.json", posted); }
@@ -359,6 +361,32 @@ async function viaX(text) {
 }
 
 
+// ---------- resend: chosen deals posted again now (.github/workflows/social-resend.yml) ----------
+// SOCIAL_RESEND="xbox:<product id> ps:<product id> …": `resend prepare` writes their posts (today's price, whatever the
+// rules and when they were last posted) to data/social/resend-queue.json, jobs/social-card.js deals resend draws their
+// pictures, and `resend post` posts them on the networks in SOCIAL_ONLY. They don't count as posted for the rules.
+function resendPrepare() {
+  const items = [], at = new Date().toISOString();
+  (env.SOCIAL_RESEND || "").split(/[\s,]+/).filter(Boolean).forEach(spec => {
+    const [plat, id] = spec.includes(":") ? spec.split(":") : ["xbox", spec];
+    if (!PLAT[plat]) return console.log("Resend " + spec + ": the store is xbox or ps");
+    const g = (read(plat + "_sales.json", { games: [] }).games || []).find(x => String(x.productId).toUpperCase() === String(id).toUpperCase());
+    if (!g || !(Number(g.price) > 0) || !(Number(g.msrp) > Number(g.price))) return console.log("Resend " + spec + ": not on sale now");
+    items.push(Object.assign(dealPost(plat, g), { id: "resend:" + plat + ":" + g.productId + ":" + at, plat, queuedAt: at }));
+    console.log("Resend: " + items[items.length - 1].title);
+  });
+  write("social/resend-queue.json", { items });
+}
+async function resendPost(nets) {
+  const items = read("social/resend-queue.json", { items: [] }).items || [];
+  console.log("Resend: " + items.length + " to post; networks: " + (nets.join(", ") || "none set up") + (DRY ? " (dry run)" : ""));
+  for (const p of items) {
+    if (DRY) { console.log("\n" + p.head + "\n" + p.line + "\n  pictures: " + JSON.stringify(p.pics || "the plain poster")); continue; }
+    console.log(await postNow(p, nets) ? "Posted: " + p.title : "Not posted anywhere: " + p.title);
+  }
+  write("social/resend-queue.json", { items: [] });
+}
+
 // ---------- the queue: one post at a time, spread over the day ----------
 // The store runs and the weekly roundup don't post: they add their posts to data/social/<xbox|ps|weekly>-queue.json
 // (each file written by its own job only), and `node jobs/social.js next` (.github/workflows/social-queue.yml, every hour)
@@ -425,13 +453,16 @@ async function next(nets) {
 
 (async () => {
   const [mode, plat] = process.argv.slice(2);
-  if (!(mode === "weekly" || mode === "next" || (mode === "deals" && PLAT[plat]))) { console.log("usage: node jobs/social.js deals xbox|ps | weekly | next"); process.exit(1); }
+  if (!(mode === "weekly" || mode === "next" || (mode === "deals" && PLAT[plat]) || (mode === "resend" && (plat === "prepare" || plat === "post")))) {
+    console.log("usage: node jobs/social.js deals xbox|ps | weekly | next | resend prepare|post"); process.exit(1); }
+  if (mode === "resend" && plat === "prepare") return resendPrepare();
   const only = (env.SOCIAL_ONLY || "").toLowerCase().split(/[\s,]+/).filter(Boolean);   // a manual test on some networks only
   const nets = Object.keys(NETWORKS).filter(n => NETWORKS[n].ready() && (!only.length || only.includes(n)));
   if (nets.includes("facebook") || nets.includes("instagram"))   // what the Meta secrets look like, without showing them
     console.log("FB_PAGE_TOKEN: " + shape(env.FB_PAGE_TOKEN) + "; FB_PAGE_ID: " + (/^\d+$/.test(env.FB_PAGE_ID || "") ? "a number (good)" : "not a number") +
                 "; IG_USER_ID: " + (!env.IG_USER_ID ? "not set" : /^\d+$/.test(env.IG_USER_ID) ? "a number (good)" : "not a number"));
   if (mode === "next") return next(nets);
+  if (mode === "resend") return resendPost(nets);
   const job = mode === "weekly" ? weeklyPosts() : dealPosts(plat);
   // SOCIAL_NOW=1 (a manual run): post right away instead of queueing
   const now = env.SOCIAL_NOW === "1";

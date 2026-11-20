@@ -13,6 +13,8 @@ Each network posts only once its secrets are set (GitHub: Settings → Secrets a
 
 Images: on Instagram and Pinterest, a deal shows the game's poster with the platform's logo, its price, the old price struck through, the discount and when the sale ends (drawn by `jobs/social-card.js deals` after each store run: 1080×1350 for Instagram, 1000×1500 for Pinterest, served by the site at `/social-img/`; if a picture can't be drawn or served, the plain poster). X, Facebook and Bluesky show the wide hero art. The store art is converted to a square JPEG by the free image proxy [wsrv.nl](https://wsrv.nl), because Instagram only accepts JPEGs and Bluesky needs images under 1 MB.
 
+**Post a deal again now**: Actions → **Social resend** → Run workflow, with the deals (`xbox:<product id>` or `ps:<product id>`, the id from the game page's address) and the networks (default `instagram,pinterest`; empty for all). It uses today's price and draws the pictures first.
+
 ## Bluesky (free)
 
 1. Bluesky → Settings → Privacy and security → App passwords → Add.
