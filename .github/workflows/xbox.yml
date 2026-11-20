@@ -69,6 +69,11 @@ jobs:
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           SOCIAL_DRY_RUN: ${{ vars.SOCIAL_DRY_RUN }}
         run: node jobs/social.js deals xbox
+      - name: The queued deals' pictures (poster, price and discount, for Instagram and Pinterest)
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        run: |
+          npm install --no-save --no-package-lock --silent playwright-core@1.48.2
+          node jobs/social-card.js deals xbox
       - name: Themed sale (Black Friday and the like) while it's on
         if: always()
         run: node jobs/events.js xbox

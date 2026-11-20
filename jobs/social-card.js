@@ -1,6 +1,10 @@
 // The weekly roundup's pictures: the week's 5 best deals on one image, for the social posts (jobs/social.js weekly).
 //
 //   node jobs/social-card.js          both stores, this week's list (data/weekly/<plat>-index.json, newest week)
+//   node jobs/social-card.js deals xbox|ps   the queued deal posts' pictures (data/social/<plat>-queue.json, after
+//                                     jobs/social.js deals): the game's poster with its price and discount, for Instagram
+//                                     (1080×1350, <plat>-deal-<date>-<id>-tall.jpg) and Pinterest (1000×1500, -poster.jpg).
+//                                     Each item gets them as "pics"; jobs/social.js uses them, else the plain poster.
 //
 // Writes data/social/img/<plat>-<week>-tall.jpg (1080×1350, Instagram and Pinterest) and -wide.jpg (1200×630, Bluesky
 // and Facebook). They're uploaded with the other files and served by the site at /social-img/<name> (functions/
@@ -34,7 +38,7 @@ function html(plat, wk, games, shape) {
       <div class="cv">${img ? `<img src="${esc(img)}${img.includes("playstation") ? "?w=440" : "?w=440&h=440"}">` : ""}<span class="rk">${i + 1}</span></div>
       <div class="tx"><div class="t">${esc(g.title)}</div>
         <div class="pr"><b>${money(g.price, g.currency)}</b><s>${money(g.msrp, g.currency)}</s></div>
-        ${g.low ? `<div class="low">Lowest price ever</div>` : tall ? "" : `<div class="low" style="visibility:hidden">.</div>`}</div>
+        ${tall ? "" : `<div class="low" style="visibility:hidden">.</div>`}</div>
       <div class="pc">-${pct}%</div></div>`;
   }).join("");
   return `<!doctype html><html><head><meta charset="utf-8">
@@ -75,6 +79,79 @@ h1 i{font-style:normal;background:linear-gradient(90deg,${P.c1},${P.c2});-webkit
 </body></html>`;
 }
 
+// one deal: the poster on a blurred copy of itself, the discount and the price under it
+function dealHtml(plat, it, w, h) {
+  const P = PLAT[plat], d = it.deal, img = it.poster ? it.poster + (it.poster.includes("playstation") ? "?w=900" : "?w=900") : "";
+  const ends = d.ends ? "Sale ends " + new Date(d.ends).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }) : "";
+  const band = Math.round(h * (w / h > 0.75 ? 0.27 : 0.25));
+  return `<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700&family=Figtree:wght@500;600;700;800&display=block" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+body{width:${w}px;height:${h}px;overflow:hidden;font-family:Figtree,sans-serif;color:#eef5f1;background:${P.bg};position:relative}
+.bg{position:absolute;inset:-60px;background:url("${esc(img)}") center/cover;filter:blur(38px) brightness(.45) saturate(1.2)}
+.top{position:absolute;left:0;right:0;top:0;height:${h - band}px;display:flex;align-items:center;justify-content:center;padding:${Math.round(w * .13)}px ${Math.round(w * .06)}px ${Math.round(w * .02)}px}
+.top img{max-width:100%;max-height:100%;border-radius:22px;box-shadow:0 24px 60px rgba(0,0,0,.6);display:block}
+.pc{position:absolute;right:${Math.round(w * .045)}px;top:${Math.round(w * .045)}px;font:700 ${Math.round(w * .085)}px/1 Unbounded;color:#3a2500;
+  background:linear-gradient(180deg,#ffe08a,#ffb020);border-radius:24px;padding:${Math.round(w * .022)}px ${Math.round(w * .028)}px;box-shadow:0 12px 34px rgba(0,0,0,.45);transform:rotate(3deg)}
+.band{position:absolute;left:0;right:0;bottom:0;height:${band}px;padding:0 ${Math.round(w * .06)}px;display:flex;flex-direction:column;justify-content:center;gap:${Math.round(h * .012)}px;
+  background:linear-gradient(180deg,rgba(10,14,20,.0),rgba(10,14,20,.88) 22%,${P.bg})}
+.pr{display:flex;align-items:baseline;gap:${Math.round(w * .03)}px;flex-wrap:wrap}
+.pr b{font:700 ${Math.round(w * .1)}px/1 Unbounded;color:${P.c1}}
+.pr s{font:600 ${Math.round(w * .05)}px/1 Figtree;color:${P.mute}}
+.ft{display:flex;align-items:center;justify-content:space-between;gap:20px;font:700 ${Math.round(w * .036)}px/1.1 Figtree;color:#ffd166;white-space:nowrap}
+.ft b{font:700 ${Math.round(w * .03)}px/1 Unbounded;color:#eef5f1;letter-spacing:-.02em}
+.ft b i{font-style:normal;color:${P.c1}}
+.plat{position:absolute;left:${Math.round(w * .05)}px;top:${Math.round(w * .05)}px;display:flex;align-items:center;gap:${Math.round(w * .016)}px;
+  font:700 ${Math.round(w * .036)}px/1 Figtree;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.7)}
+.plat img{height:${Math.round(w * .064)}px;width:auto;filter:drop-shadow(0 2px 10px rgba(0,0,0,.6))}
+</style></head><body>
+${img ? `<div class="bg"></div><div class="top"><img src="${esc(img)}"></div>` : ""}
+<div class="plat"><img src="${LOGO[plat]}" onerror="this.remove()">${P.name}</div>
+<div class="pc">-${d.pct}%</div>
+<div class="band">
+  <div class="pr"><b>${money(d.price, d.currency)}</b><s>${money(d.msrp, d.currency)}</s></div>
+  <div class="ft"><span>${esc(ends)}</span><b>game<i>deal</i>track.com</b></div>
+</div>
+</body></html>`;
+}
+
+const SITE = "https://gamedealtrack.com";
+// the platforms' logos, as the site shows them (its img/ph-*.png); a picture without it if it doesn't load
+const LOGO = { xbox: SITE + "/img/ph-xbox.png?v=2", ps: SITE + "/img/ph-ps.png" };
+const SHAPES = [["tall", 1080, 1350], ["poster", 1000, 1500]];
+async function dealCards(plat) {
+  const file = "social/" + plat + "-queue.json", q = read(file, { items: [] }), items = q.items || [];
+  const todo = items.filter(it => it.deal && !it.pics);
+  const out = path.join(DATA, "social", "img");
+  fs.mkdirSync(out, { recursive: true });
+  if (todo.length) {
+    const b = await browser();
+    for (const it of todo) {
+      const base = plat + "-deal-" + new Date().toISOString().slice(0, 10).replace(/-/g, "") + "-" + String(it.key).replace(/[^A-Za-z0-9]/g, "").slice(0, 40);
+      const pics = {};
+      for (const [shape, w, h] of SHAPES) {
+        try {
+          const page = await b.newPage({ viewport: { width: w, height: h } });
+          await page.setContent(dealHtml(plat, it, w, h), { waitUntil: "networkidle", timeout: 60000 }).catch(() => {});
+          await page.evaluate(() => document.fonts.ready);
+          const ok = await page.evaluate(() => { const i = document.querySelector(".top img"); return !!(i && i.complete && i.naturalWidth); });
+          const name = base + "-" + shape + ".jpg";
+          if (ok) { await page.screenshot({ path: path.join(out, name), type: "jpeg", quality: 90 }); pics[shape] = { file: "social/img/" + name, url: SITE + "/social-img/" + name }; }
+          else console.log("Deal card " + it.title + ": the poster didn't load, the post keeps the plain poster");
+          await page.close();
+        } catch (e) { console.log("Deal card " + it.title + " (" + shape + ") failed: " + e.message); }
+      }
+      if (pics.tall || pics.poster) { it.pics = pics; console.log("Deal card: " + base + " (" + it.title + ")"); }
+    }
+    await b.close();
+    fs.writeFileSync(path.join(DATA, file), JSON.stringify(Object.assign(q, { items })));
+  } else console.log("Deal cards " + plat + ": nothing new in the queue");
+  // keep the deal pictures 14 days (a queued post waits at most a few days)
+  const cutoff = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10).replace(/-/g, "");
+  fs.readdirSync(out).forEach(f => { const m = f.match(/^(?:xbox|ps)-deal-(\d{8})-/); if (m && m[1] < cutoff) fs.unlinkSync(path.join(out, f)); });
+}
+
 async function browser() {
   let pw;
   try { pw = require("playwright-core"); } catch (e) { pw = require("playwright"); }
@@ -109,8 +186,11 @@ async function main() {
   }
   // keep the last 8 weeks
   const files = fs.readdirSync(out).sort();
-  ["xbox", "ps"].forEach(p => files.filter(f => f.startsWith(p + "-")).reverse().slice(16).forEach(f => fs.unlinkSync(path.join(out, f))));
+  ["xbox", "ps"].forEach(p => files.filter(f => f.startsWith(p + "-") && !f.includes("-deal-")).reverse().slice(16).forEach(f => fs.unlinkSync(path.join(out, f))));
   await b.close();
 }
-if (require.main === module) main().catch(e => { console.error("Social cards failed: " + e.message); process.exit(0); });
+if (require.main === module) {
+  const [mode, plat] = process.argv.slice(2);
+  (mode === "deals" ? dealCards(plat === "ps" ? "ps" : "xbox") : main()).catch(e => { console.error("Social cards failed: " + e.message); process.exit(0); });
+}
 module.exports = { topFive };

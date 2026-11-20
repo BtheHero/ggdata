@@ -98,6 +98,8 @@ const poster = (u, w, h) => u ? "https://wsrv.nl/?url=" + encodeURIComponent(u) 
 const pic = (p, w, shape) => {
   const c = p.card && (p.card[shape === "poster" ? "tall" : shape] || p.card.wide || p.card.tall);
   if (c) return c.url;
+  const d = shape !== "wide" && p.pics && p.pics[shape];   // a deal's poster with its price and discount (jobs/social-card.js deals)
+  if (d) return d.url;
   if (shape !== "wide" && p.poster) return poster(p.poster, w, Math.round(w * (shape === "poster" ? 1.5 : 1.25)));
   return p.hero ? wide(p.hero, w) : jpeg(p.image, w);
 };
@@ -157,9 +159,10 @@ function dealPosts(plat) {
     posts: picked.map(g => {
       const p = { price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD" }, pct = pctOff(p);
       const head = "🔥 " + g.title + ": " + pct + "% off on " + PLAT[plat].name;
-      const line = [money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")" + (g.atLow ? " · lowest price ever" : ""), endsLine(g.saleEnds)].filter(Boolean).join("\n");
+      const line = [money(p.price, p.currency) + " (was " + money(p.msrp, p.currency) + ")", endsLine(g.saleEnds)].filter(Boolean).join("\n");
       return { key: g.productId, title: g.title + " – " + pct + "% off (" + PLAT[plat].name + ")", head, line,
-        url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), poster: fullImg(g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags, ends: g.saleEnds || "" };
+        url: pageUrl(plat, g.productId, g.title), image: fullImg(g.sq || g.image), poster: fullImg(g.image), hero: heroOf(plat, g.productId), tags: PLAT[plat].tags, ends: g.saleEnds || "",
+        deal: { price: p.price, msrp: p.msrp, currency: p.currency, pct, ends: g.saleEnds || "" } };   // for its pictures (jobs/social-card.js deals)
     }),
     remember: keys => { picked.filter(g => keys.includes(g.productId)).forEach(g => { posted[g.productId] = posted["t:" + gameKey(g.title)] = today(); });
       Object.keys(posted).forEach(k => { if (posted[k] < cutoff) delete posted[k]; });
@@ -275,7 +278,7 @@ const NETWORKS = {
     async post(p) {
       if (!p.card && !p.image) throw new Error("Pinterest needs an image");
       const link = withUtm(p.url, "pinterest"), description = (p.line + "\n" + p.tags.map(t => "#" + t).join(" ")).slice(0, 500);
-      const image = p.card || p.poster ? pic(p, 1000, "poster") : jpeg(p.image, 1000);
+      const image = p.card || p.poster || p.pics ? pic(p, 1000, "poster") : jpeg(p.image, 1000);
       if (env.BUFFER_API_KEY && env.BUFFER_PINTEREST_CHANNEL_ID) {
         if (!this.board) this.board = await bufferBoard(env.BUFFER_PINTEREST_CHANNEL_ID, env.PINTEREST_BOARD_ID);
         return viaBuffer(env.BUFFER_PINTEREST_CHANNEL_ID, description, image, p.title,
@@ -385,6 +388,11 @@ function enqueue(name, posts) {
 }
 async function postNow(p, nets) {
   let any = false;
+  if (p.pics) for (const k of Object.keys(p.pics)) {   // a deal picture the site can't serve (yet): the plain poster instead
+    const r = await fetch(p.pics[k].url).catch(() => null);
+    if (r && r.body) r.body.cancel().catch(() => {});
+    if (!r || !r.ok) { console.log("  picture " + p.pics[k].url + " isn't served (" + (r ? r.status : "no answer") + "): the plain poster instead"); delete p.pics[k]; }
+  }
   for (const n of nets) {
     try { console.log("  " + n + ": " + p.title + " → " + await NETWORKS[n].post(p)); any = true; }
     catch (e) { console.log("  " + n + " failed: " + p.title + ": " + e.message); }

@@ -11,7 +11,7 @@ Each network posts only once its secrets are set (GitHub: Settings → Secrets a
 
 **Test first**: add a repository *variable* (not a secret) `SOCIAL_DRY_RUN` = `1`. The runs then print what they would post in the "Post…" step's log and send nothing. Delete the variable to go live. You can try it straight away from the Actions tab: **Social weekly → Run workflow**. (The deal posts run only on the schedule, not on manual runs.)
 
-Images: Instagram and Pinterest show the game's poster (its portrait store cover, whole, on black: 4:5 for Instagram, 2:3 for Pinterest); X, Facebook and Bluesky the wide hero art. The store art is converted to a square JPEG by the free image proxy [wsrv.nl](https://wsrv.nl), because Instagram only accepts JPEGs and Bluesky needs images under 1 MB.
+Images: on Instagram and Pinterest, a deal shows the game's poster with the platform's logo, its price, the old price struck through, the discount and when the sale ends (drawn by `jobs/social-card.js deals` after each store run: 1080×1350 for Instagram, 1000×1500 for Pinterest, served by the site at `/social-img/`; if a picture can't be drawn or served, the plain poster). X, Facebook and Bluesky show the wide hero art. The store art is converted to a square JPEG by the free image proxy [wsrv.nl](https://wsrv.nl), because Instagram only accepts JPEGs and Bluesky needs images under 1 MB.
 
 ## Bluesky (free)
 
