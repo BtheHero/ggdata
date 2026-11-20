@@ -1,0 +1,41 @@
+# PlayStation: every game's editions in each region's store, a part at a time, so each region prices the same edition as
+# the US (jobs/ps-editions.js); then the regions' prices and the game pages' price tables. Twice a day, between the
+# daily PlayStation runs (about 3 AM and 9 AM Pacific).
+name: PlayStation regions
+on:
+  schedule:
+    - cron: "23 3 * * *"
+    - cron: "37 20 * * *"
+  workflow_dispatch:
+concurrency:
+  group: ps-files   # jobs that write the same files wait for each other (the others run alongside: each uploads only what it changed)
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SEED_PS: "1"
+      PS_ED_MINUTES: "80"   # lookups in all (the regions share it); the prices and price tables follow
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Download the saved files
+        run: aws s3 sync s3://ggdata/data data --endpoint-url "$R2" --only-show-errors --exclude "media/*" --exclude "compare/*" --exclude "xbox_games_*" --exclude "ps_games_*"
+      - name: Note what was downloaded
+        run: node tools/upload.js snapshot
+      - name: Copy files from the site
+        env:
+          SOURCE_API: ${{ secrets.SOURCE_API }}
+        run: node seed.js
+      - name: Look up each region's editions, then price them
+        run: node run.js psregions
+      - name: Upload the files
+        if: always()
+        run: node tools/upload.js push   # only the files this job changed

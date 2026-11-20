@@ -19,7 +19,7 @@ const PS_HASH = {
   categoryGridRetrieve: "88c0b9a1273c6d320c51cd73e390924e21ae28bf09f01cde8b84b1034b16cd03",
   productRetrieveForCtasWithPrice: "8532da7eda369efdad054ca8f885394a2d0c22d03c5259a422ae2bb3b98c5c99",
   metGetProductById: "a128042177bd93dd831164103d53b73ef790d56f51dae647064cb8f9d9fc9d1a",
-  // a game (concept) and every edition of it sold in the store of the locale asked, with their prices (run.js fillPsRegionGaps)
+  // a game (concept) and every edition of it sold in the store of the locale asked, with their prices (jobs/ps-editions.js: each region's editions)
   metGetPricingDataByConceptId: "abcb311ea830e679fe2b697a27f755764535d825b24510ab1239a4ca3092bd09"
 };
 const PS_ALL_DEALS = "3f772501-f6f8-49b7-abac-874a88ca4897";
@@ -518,21 +518,21 @@ function psConceptPrice_(c, cache) {
   const fg = c && PS_FULLGAME[String(c.id)];
   if (fg && ep[fg] && ep[fg][0] !== null && ep[fg][0] !== undefined) {
     if (ep[fg][0] !== price || ep[fg][1] !== base) PS_EPICK[String(c.id)] = 1;
-    return { price: ep[fg][0], base: ep[fg][1] === null ? ep[fg][0] : ep[fg][1], title: psName_(ep[fg][3]), game: fg };
+    return { price: ep[fg][0], base: ep[fg][1] === null ? ep[fg][0] : ep[fg][1], title: psName_(ep[fg][3]), game: fg, pid: fg };
   }
   const real = psRealGame_(c, cache);
   if (real) {
     const e = ep[real];
     if (c && c.id && (e[0] !== price || e[1] !== base)) PS_EPICK[String(c.id)] = 1;
-    return { price: e[0], base: e[1], title: psName_(e[3]), game: real };
+    return { price: e[0], base: e[1], title: psName_(e[3]), game: real, pid: real };
   }
   const games = new Set(ids.map(id => ep[id] && ep[id][3] && !PS_DEMO.test(ep[id][3]) ? psGameKey_(ep[id][3]) : "").filter(Boolean));
   const first = ep[ids[0]];
   if (games.size >= 3 && first && first[0] !== null && first[3]) {
-    return { price: first[0], base: first[1], title: psName_(String(first[3]).replace(/\s+[-–]\s+(standard edition|cross-gen bundle)$/i, "")) };
+    return { price: first[0], base: first[1], title: psName_(String(first[3]).replace(/\s+[-–]\s+(standard edition|cross-gen bundle)$/i, "")), pid: ids[0] };
   }
   if (ids.length > 1) {
-    let std = null;
+    let std = null, stdId = null;
     const free = !!(c.price && c.price.isFree);   // $0 editions only count for free games
     // upgrades and add-ons sold on the game's page ("Digital Deluxe Upgrade", $10) aren't an edition of the game
     const notEdition = e => /\b(upgrade|add-?ons?|season pass|expansion|dlc|soundtrack|currency|points|coins)\b/i.test(String(e[3] || ""));
@@ -546,7 +546,7 @@ function psConceptPrice_(c, cache) {
     const mine = mine1.length ? mine1 : mine0;
     mine.forEach(id => {
       const e = ep[id];
-      if (e && e[0] !== null && e[1] !== null && (e[1] > 0 || free) && !notEdition(e) && (!std || e[1] < std[1] || (e[1] === std[1] && e[0] < std[0]))) std = e;
+      if (e && e[0] !== null && e[1] !== null && (e[1] > 0 || free) && !notEdition(e) && (!std || e[1] < std[1] || (e[1] === std[1] && e[0] < std[0]))) { std = e; stdId = id; }
     });
     // the store's "from" price for the page can itself be the upgrade's, or the other game's: then the standard
     // edition's price replaces it
@@ -554,9 +554,12 @@ function psConceptPrice_(c, cache) {
     if (std && (base === null || std[1] <= base || fromAddOn)) {
       if (c && c.id && (std[1] !== base || std[0] !== price)) PS_EPICK[String(c.id)] = 1;
       price = std[0]; base = std[1];
+      return { price: price, base: base, pid: stdId };
     }
   }
-  return { price: price, base: base };
+  // the store's own price for the game: the edition with that price (one edition: that one)
+  const own = ids.length === 1 ? ids[0] : ids.find(id => ep[id] && ep[id][0] === price && ep[id][1] === base) || null;
+  return { price: price, base: base, pid: own };
 }
 
 // ---------- The daily run ----------
@@ -1024,7 +1027,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
 
 // Every game (concept) in the store, same row shape as xbox_catalog.json:
 // [id, title, publisher, price, msrp, currency, image, rank, subs, pc, upcoming release, tiers, url, product id (for the gallery),
-//  square art ("~" = PS_IMG_ROOT)]
+//  square art ("~" = PS_IMG_ROOT), 15, the game's editions (16), the edition its price is for (17)]
 function psBuildCatalog_(games, max, trials, cache, t0) {
   const details = (cache && cache.details) || {};
   const all = psGrid_(PS_ALL_GAMES, { name: "sales30", isAscending: false }, max);
@@ -1056,7 +1059,8 @@ function psBuildCatalog_(games, max, trials, cache, t0) {
     rows.push([String(c.id), psName_(cp.title || named || c.name) + (p4 ? " (PS4)" : ""), (details[pid] && details[pid].pub) || "", price, base === null ? price : base, "USD",
                psImage_(c.media), i + 1, psSubs_(tiers).join(","), 0, "", tiers.join(","), PS_STORE + "concept/" + c.id, pid,
                String(psSquare_(c.media) || "").replace(PS_IMG_ROOT, "~"), 0,
-               psConceptIds_(c).length > 1 ? psConceptIds_(c).join(",") : ""]);   // 16: the game's editions (product ids)
+               psConceptIds_(c).length > 1 ? psConceptIds_(c).join(",") : "",   // 16: the game's editions (product ids)
+               cp.pid || ""]);   // 17: the edition its price is for (the regions price the same one: jobs/ps-editions.js)
   });
   if (franchise.length) {
     const art = psFranchiseArt_(franchise.map(x => x[1]));
@@ -1090,6 +1094,9 @@ function testPlayStation() {
 //   extra:  games on sale in that region but not in the US sale list
 // Concepts from the region's top lists are included too, so the home page rows can be re-priced.
 let PS_NAMES = {};   // a region's games by name (norm_ of cleanTitle_) -> concept id, best-selling first
+// a region's games as its full game list shows them: {concept id: [regular price, [product ids]]} (run.js: a game whose
+// editions changed is looked up again, jobs/ps-editions.js)
+let PS_GRIDCON = {};
 function exportPsRegion_(code, startTime) {
   const locale = psQueryLocale_(code);
   const deals = psGrid_(PS_ALL_DEALS, { name: "sales30", isAscending: false }, 20000, locale);
@@ -1118,8 +1125,10 @@ function exportPsRegion_(code, startTime) {
   // Concept ids are the same in every region.
   const picks = [];   // games priced by an edition in the US (PS_EPICK): their editions here, looked up below
   PS_NAMES = {};
+  PS_GRIDCON = {};
   [["sales30", 15000]].forEach(([sort, n]) => {
     psGrid_(PS_ALL_GAMES, { name: sort, isAscending: false }, n, locale).items.forEach(c => {
+      if (c && c.id && c.price && !PS_GRIDCON[String(c.id)]) PS_GRIDCON[String(c.id)] = [psPrice_(c.price.basePrice), psConceptIds_(c)];
       if (!c || !c.id || !c.price || prices[String(c.id)]) return;
       const base = psPrice_(c.price.basePrice), price = psPrice_(c.price.discountedPrice) === null ? base : psPrice_(c.price.discountedPrice);   // ("Included" with PS Plus: its regular price)
       if (price === null) return;

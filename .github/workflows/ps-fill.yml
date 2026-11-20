@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 24
       - name: Download the saved files
-        run: aws s3 sync s3://ggdata/data data --endpoint-url "$R2" --only-show-errors --exclude "media/*" --exclude "compare/*" --exclude "xbox_games_*" --exclude "ps_games_*"
+        run: aws s3 sync s3://ggdata/data data --endpoint-url "$R2" --only-show-errors --exclude "psed/*" --exclude "media/*" --exclude "compare/*" --exclude "xbox_games_*" --exclude "ps_games_*"
       - name: Note what was downloaded
         run: node tools/upload.js snapshot
       - name: Copy files from the site
