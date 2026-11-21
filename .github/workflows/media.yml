@@ -1,4 +1,5 @@
-# Screenshots, trailers, key art and genres of every game (jobs/media.js), once a day after the morning Xbox run.
+# Screenshots, trailers, key art and genres of every game (jobs/media.js), and every game's description in the site's
+# other languages (jobs/descriptions.js), once a day after the morning Xbox run.
 name: Media
 on:
   schedule:
@@ -7,6 +8,9 @@ on:
 concurrency:
   group: media-files   # jobs that write the same files wait for each other (the others run alongside: each uploads only what it changed)
   cancel-in-progress: false
+permissions:
+  contents: read
+  models: read   # GitHub Models: the free machine translation of descriptions (jobs/descriptions.js)
 jobs:
   media:
     runs-on: ubuntu-latest
@@ -35,6 +39,17 @@ jobs:
       - name: Look up the media
         if: always()
         run: node run.js media
+      - name: Install the job's packages
+        if: always()
+        run: npm ci --no-audit --no-fund
+      - name: Descriptions in the site's other languages
+        if: always()
+        env:
+          # machine translation for the languages a store has no text in (jobs/descriptions.js): GitHub Models, free;
+          # the Claude API instead when the ANTHROPIC_API_KEY secret is set
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node run.js desc
       - name: Upload the files
         if: always()
         run: node tools/upload.js push   # only the files this job changed

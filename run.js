@@ -1,6 +1,7 @@
 // Runs one job: node run.js <job>
 //   xbox   the Xbox US export, then every other region
 //   media  screenshots, trailers, key art and genres of every game
+//   desc   every game's description in the site's other languages (stores first, then machine translation)
 //   scores Metacritic scores (both stores)
 //   pages  Xbox add-ons on sale, then the Xbox game pages
 //   alladdons  every Xbox add-on (part of the games each day)
@@ -313,6 +314,13 @@ const jobs = {
   },
   // every Xbox add-on, on sale or not (a part of the games each day)
   alladdons() { exportXboxAllAddOns(); },
+  // every game's store description in the site's other languages, machine-translated where the store has none
+  // (jobs/descriptions.js)
+  desc() {
+    require("./jobs/descriptions").descriptions(rt.DATA_DIR)
+      .then(() => console.log("== descriptions done (" + secs() + ")"))
+      .catch(e => { console.log("Descriptions failed: " + e.message); process.exitCode = 1; });
+  },
   // screenshots, trailers, key art and genres of every game (jobs/media.js); PlayStation's game list comes from the
   // site's data service (seed.js copies it to SRC_DIR)
   media() {

@@ -1,3 +1,4 @@
 report-site/public/data/
 report-site/.wrangler/
 .report-cache/
+node_modules/
