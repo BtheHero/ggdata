@@ -259,9 +259,13 @@ const jobs = {
     try { buildPsCompare(); } catch (e) { console.log("Compare failed: " + e.message); }
   },
   // publishers, store ratings and descriptions, looked up a part at a time
-  psfill() { psFillPublishers(); },
+  psfill() {
+    psFillPublishers();
+    // posters (jobs/ps-posters.js), with the Steam lookups, which need the time this run has
+    try { require("./jobs/ps-posters").psPosters(rt.DATA_DIR, { steam: true }); } catch (e) { console.log("Posters failed: " + e.message); }
+  },
   // PlayStation posters only (jobs/ps-posters.js), for testing
-  psposters() { require("./jobs/ps-posters").psPosters(rt.DATA_DIR); },
+  psposters() { require("./jobs/ps-posters").psPosters(rt.DATA_DIR, { steam: true }); },
   // PlayStation game pages
   pspages() {
     const n = gamePagesFor_("PS_");
