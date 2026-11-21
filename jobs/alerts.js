@@ -12,15 +12,15 @@
 // FCM_SERVICE_ACCOUNT (the app's notifications: the Firebase project's service account key, the whole JSON file).
 // ALERTS_DRY=1: logs what would be sent and sends nothing.
 const fs = require("fs"), path = require("path");
+const { alertText } = require("./alert-text");   // the words, in the person's language (u.lang)
 const DATA = path.resolve(process.env.DATA_DIR || "data");
 const read = (f, d) => { try { return JSON.parse(fs.readFileSync(path.join(DATA, f), "utf8")); } catch (e) { return d; } };
 const DRY = !!process.env.ALERTS_DRY;
 const API = process.env.SOURCE_API, SITE = API ? new URL(API).origin : "";
 const XIMG = "https://store-images.s-microsoft.com/image/";
 const slug = t => String(t || "game").toLowerCase().normalize("NFKD").replace(/[™®©]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "game";
-const fmt = (v, c) => { try { return new Intl.NumberFormat("en-US", { style: "currency", currency: c || "USD" }).format(v); } catch (e) { return v + " " + (c || ""); } };
 const tNorm = t => typeof t === "number" ? { p: t, c: "USD", r: "US", pct: 0 } : t && typeof t === "object" ? { p: Number(t.p) || 0, c: t.c || "USD", r: t.r || "US", pct: Number(t.pct) || 0 } : null;
-const tText = t => t.pct ? t.pct + "% off" : fmt(t.p, t.c);
+const tText = (L, t) => t.pct ? L.pctOff(t.pct) : L.money(t.p, t.c);
 const pctOf = x => x.msrp > x.price && x.price > 0 ? Math.round((1 - x.price / x.msrp) * 100) : 0;
 // a region's price file, by id in capitals (read once)
 const regFiles = {};
@@ -95,31 +95,33 @@ function prices() {
   Object.values(info).forEach(x => { if (x.image && !/^https?:/.test(x.image)) x.image = XIMG + x.image; });
   return info;
 }
-const pageUrl = (id, x) => `${SITE}/game/${x.plat}/${encodeURIComponent(x.page || id)}/${slug(x.title)}`;
+const pageUrl = (L, id, x) => SITE + L.path(`/game/${x.plat}/${encodeURIComponent(x.page || id)}/${slug(x.title)}`);
+const unsubUrl = (L, u) => `${SITE}/api?action=unsub&u=${encodeURIComponent(u.uid)}&t=${encodeURIComponent(u.unsub)}${L.lang === "en" ? "" : "&l=" + L.lang}`;
 
-function emailHtml(u, items) {
+function emailHtml(L, u, items) {
+  const fmt = L.money;
   const rows = items.map(({ id, x, kind, target }) => {
-    const pct = pctOf(x), store = x.region && x.region !== "US" ? ` · ${x.region} store` : "";
-    const why = kind === "target" ? `Your alert: ${tText(target)}${store}` : x.ends ? `Sale ends ${new Date(x.ends).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}` : "On sale";
-    return `<tr><td style="padding:10px 12px 10px 0;width:64px"><a href="${pageUrl(id, x)}"><img src="${esc(x.image)}${x.image.includes("?") ? "" : "?w=128"}" width="64" alt="" style="display:block;border-radius:8px"></a></td>
-      <td style="padding:10px 0"><a href="${pageUrl(id, x)}" style="color:#0b1f17;font-weight:700;text-decoration:none">${esc(x.title)}</a>
+    const pct = pctOf(x), store = x.region && x.region !== "US" ? ` · ${L.store(L.region(x.region))}` : "";
+    const why = kind === "target" ? L.yourAlert(tText(L, target)) + store : x.ends ? L.ends(L.date(x.ends)) : L.onSale;
+    return `<tr><td style="padding:10px 12px 10px 0;width:64px"><a href="${pageUrl(L, id, x)}"><img src="${esc(x.image)}${x.image.includes("?") ? "" : "?w=128"}" width="64" alt="" style="display:block;border-radius:8px"></a></td>
+      <td style="padding:10px 0"><a href="${pageUrl(L, id, x)}" style="color:#0b1f17;font-weight:700;text-decoration:none">${esc(x.title)}</a>
       <div style="margin-top:4px"><b style="color:#0d8a5f;font-size:16px">${fmt(x.price, x.currency)}</b>${pct ? ` <s style="color:#777">${fmt(x.msrp, x.currency)}</s> <span style="background:#ffd166;border-radius:6px;padding:1px 6px;font-weight:700;font-size:13px">-${pct}%</span>` : ""}</div>
       <div style="color:#666;font-size:13px;margin-top:2px">${x.plat === "ps" ? "PlayStation" : "Xbox"} · ${esc(why)}</div></td></tr>`;
   }).join("");
-  const unsub = `${SITE}/api?action=unsub&u=${encodeURIComponent(u.uid)}&t=${encodeURIComponent(u.unsub)}`;
-  return `<!DOCTYPE html><html><body style="margin:0;background:#f3f6f4;font-family:Arial,Helvetica,sans-serif;color:#0b1f17">
+  const unsub = unsubUrl(L, u);
+  return `<!DOCTYPE html><html lang="${L.lang}"><body style="margin:0;background:#f3f6f4;font-family:Arial,Helvetica,sans-serif;color:#0b1f17">
     <div style="max-width:560px;margin:0 auto;padding:24px 16px"><div style="background:#fff;border-radius:14px;padding:22px">
     <div style="font-weight:800;font-size:18px;margin-bottom:12px">GameDealTrack</div>
-    <p style="margin:0 0 8px">${items.length === 1 ? "A game you're watching has a new price:" : "Games you're watching have new prices:"}</p>
+    <p style="margin:0 0 8px">${esc(items.length === 1 ? L.lead1 : L.leadN)}</p>
     <table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">${rows}</table>
-    <p style="margin:18px 0 0"><a href="${SITE}/deals?wl=1" style="color:#0d8a5f">See your wishlist</a></p></div>
-    <p style="color:#777;font-size:12px;text-align:center;margin:14px 0 0">Prices are your region's store's (as picked on the site) and can change. You get these because you turned on alerts on GameDealTrack.<br>
-    <a href="${unsub}" style="color:#777">Unsubscribe from alert emails</a></p></div></body></html>`;
+    <p style="margin:18px 0 0"><a href="${SITE}${L.path("/deals?wl=1")}" style="color:#0d8a5f">${esc(L.wishlist)}</a></p></div>
+    <p style="color:#777;font-size:12px;text-align:center;margin:14px 0 0">${esc(L.footer)}<br>
+    <a href="${unsub}" style="color:#777">${esc(L.unsub)}</a></p></div></body></html>`;
 }
-const subjectOf = items => {
-  const a = items[0], pct = pctOf(a.x);
-  if (items.length > 1) return `${items.length} games you're watching have new prices`;
-  return a.kind === "target" ? `${a.x.title} is now ${fmt(a.x.price, a.x.currency)}${pct ? ` (-${pct}%)` : ""} (your alert: ${tText(a.target)})` : `${a.x.title} is on sale: ${fmt(a.x.price, a.x.currency)}${pct ? ` (-${pct}%)` : ""}`;
+const subjectOf = (L, items) => {
+  const a = items[0], pct = pctOf(a.x), price = L.money(a.x.price, a.x.currency) + (pct ? ` (-${pct}%)` : "");
+  if (items.length > 1) return L.subjN(items.length);
+  return a.kind === "target" ? L.subjTarget(a.x.title, price, tText(L, a.target)) : L.subjSale(a.x.title, price);
 };
 
 async function main() {
@@ -159,22 +161,22 @@ async function main() {
     });
     if (!items.length) { if (Object.keys(mine).length) sent[u.uid] = mine; else delete sent[u.uid]; continue; }
     items.sort((a, b) => (a.kind === "target" ? 0 : 1) - (b.kind === "target" ? 0 : 1) || (b.x.msrp - b.x.price) - (a.x.msrp - a.x.price));
-    const list = items.slice(0, 20);
+    const list = items.slice(0, 20), L = alertText(u.lang), fmt = L.money;
     let delivered = false;
     if (u.email && mail) {
-      if (DRY) { console.log("[dry] email to " + u.email.replace(/^(.).*@/, "$1…@") + ": " + subjectOf(list)); delivered = true; }
+      if (DRY) { console.log("[dry] email (" + L.lang + ") to " + u.email.replace(/^(.).*@/, "$1…@") + ": " + subjectOf(L, list)); delivered = true; }
       else {
         const res = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: "Bearer " + mail, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: process.env.ALERT_FROM || ("GameDealTrack <alerts@" + new URL(API).hostname + ">"), to: [u.email], subject: subjectOf(list), html: emailHtml(u, list),
-            headers: { "List-Unsubscribe": `<${SITE}/api?action=unsub&u=${encodeURIComponent(u.uid)}&t=${encodeURIComponent(u.unsub)}>` } }) });
+          body: JSON.stringify({ from: process.env.ALERT_FROM || ("GameDealTrack <alerts@" + new URL(API).hostname + ">"), to: [u.email], subject: subjectOf(L, list), html: emailHtml(L, u, list),
+            headers: { "List-Unsubscribe": `<${unsubUrl(L, u)}>` } }) });
         if (res.ok) { emails++; delivered = true; } else console.log("Email failed (" + res.status + "): " + (await res.text()).slice(0, 200));
         await sleep(600);   // Resend allows a few emails a second
       }
     }
     const a = list[0], note = {
-      title: list.length > 1 ? list.length + " games you're watching have new prices" : (a.kind === "target" ? "Your price alert: " : "On sale: ") + a.x.title,
-      body: list.length > 1 ? list.slice(0, 3).map(i => i.x.title + " " + fmt(i.x.price, i.x.currency)).join(" · ") : fmt(a.x.price, a.x.currency) + (a.x.msrp > a.x.price ? " (was " + fmt(a.x.msrp, a.x.currency) + ")" : ""),
-      url: list.length > 1 ? "/deals?wl=1" : pageUrl(a.id, a.x).slice(SITE.length), tag: "gdt-alert" };
+      title: list.length > 1 ? L.subjN(list.length) : (a.kind === "target" ? L.pushTarget : L.pushSale)(a.x.title),
+      body: list.length > 1 ? list.slice(0, 3).map(i => i.x.title + " " + fmt(i.x.price, i.x.currency)).join(" · ") : fmt(a.x.price, a.x.currency) + (a.x.msrp > a.x.price ? " " + L.was(fmt(a.x.msrp, a.x.currency)) : ""),
+      url: list.length > 1 ? L.path("/deals?wl=1") : pageUrl(L, a.id, a.x).slice(SITE.length), tag: "gdt-alert" };
     if (FCM && (u.fcm || []).length) {
       for (const t of u.fcm) {
         if (DRY) { console.log("[dry] app: " + note.title); delivered = true; continue; }
