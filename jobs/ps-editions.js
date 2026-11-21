@@ -273,6 +273,7 @@ function psResolveRegion_(code) {
   if (!rf || !rf.prices) return;
   (rf.ed || []).forEach(k => { delete rf.prices[k]; });
   Object.keys(rf.was || {}).forEach(k => { rf.prices[k] = rf.was[k]; });
+  if (rf.xwas) { rf.extra = (rf.extra || []).concat(rf.xwas); delete rf.xwas; }   // (the store's deals paired by name below)
   const now = Date.now(), side = usSide_(), here = load(code), usEd = side.us.c;
   // the prices the earlier way merged (gap: looked up by game, paired by name) stay until every game's editions here
   // are known
@@ -360,6 +361,30 @@ function psResolveRegion_(code) {
     else if (a[1] === "") return;
     else if (!rf.prices[g.key] || ed.indexOf(g.key) >= 0) notSold(g.key);
   });
+  // still without a price nor known not sold here (mostly add-ons whose store code says nothing, "…_00-0716578793176238"):
+  // the deal of this store's own deal list with the same name, for the same consoles, when each store has one deal of
+  // that name. The store's deal is then the US deal's (taken out of extra: its deals not sold in the US).
+  const nameOf = t => edKey(String(t || "").replace(/\s*\(PS4\)\s*$/, ""));
+  const open = side.deals.filter(g => !rf.prices[g.key] && !na.has(g.key) && nameOf(g.title).length >= 3);
+  const usCount = {}, theirs = {};
+  open.forEach(g => { const n = nameOf(g.title); usCount[n] = (usCount[n] || 0) + 1; });
+  side.deals.forEach(g => { const n = nameOf(g.title); if (usCount[n] && rf.prices[g.key]) usCount[n]++; });   // (another US deal of that name is priced here already)
+  (rf.extra || []).forEach(x => { const n = nameOf(x.title); if (usCount[n] && rf.prices[x.key]) (theirs[n] = theirs[n] || []).push(x); });
+  const paired = new Set();
+  let byName = 0;
+  open.forEach(g => {
+    // (and, when the game's editions here are known, a product of the same game: its id has one of their title ids,
+    // "UP0999-CUSA05186_00-…", so a name like "Gold Edition 6 in 1" isn't another publisher's)
+    const x = g.con && here.c[g.con], titles = x && x[1] ? new Set(x[1].map(e => { const q = parseId(e[0]); return q && q.prefix + "-" + q.title; })) : null;
+    const sameGame = id => { const q = parseId(id); return !titles || (q && titles.has(q.prefix + "-" + q.title)); };
+    const n = nameOf(g.title), xs = (theirs[n] || []).filter(x => overlap(platsOf(x.platforms), g.plats) && sameGame(x.productId));
+    if (usCount[n] !== 1 || xs.length !== 1) return;
+    const p = rf.prices[xs[0].key];
+    put(g.key, xs[0].productId, [p[0], p[1], 0, p[2]]);
+    paired.add(xs[0]);
+    byName++;
+  });
+  if (paired.size) { rf.xwas = rf.extra.filter(x => paired.has(x)); rf.extra = rf.extra.filter(x => !paired.has(x)); }
   rf.ed = ed;
   rf.was = was;
   // (while the earlier way's prices stay, so do the games it found not sold here)
@@ -380,7 +405,7 @@ function psResolveRegion_(code) {
   rf.ends = ends;
   fs.writeFileSync(file, JSON.stringify(rf));
   console.log("PlayStation " + code + " prices by edition: " + ed.length + " set, " + priced + " games priced by their own edition, " + missing +
-              " whose edition isn't sold here; " + rf.na.length + " not sold here, " + Object.keys(ends).length + " sale ends");
+              " whose edition isn't sold here; " + rf.na.length + " not sold here, " + Object.keys(ends).length + " sale ends, " + byName + " deals paired by name");
 }
 
 module.exports = { psEditionLookups, psResolveRegion_, psMatchEditions_, edKey, editionsOf_ };
