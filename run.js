@@ -13,7 +13,7 @@ const job = process.argv[2];
 const t0 = Date.now();
 const secs = () => Math.round((Date.now() - t0) / 1000) + " s";
 
-rt.load(["gs/common.gs", "gs/xbox.gs", "gs/addons.gs", "gs/gamepages.gs", "gs/ps.gs"], "global.__XBOX = { REGIONS: REGIONS, PS_REGIONS: PS_REGIONS, PS_LOOSE: PS_LOOSE, psIsGame_: psIsGame_, psRegionLists: () => [PS_NAMES, PS_GRIDCON] };");
+rt.load(["gs/common.gs", "gs/xbox.gs", "gs/addons.gs", "gs/gamepages.gs", "gs/ps.gs"], "global.__XBOX = { REGIONS: REGIONS, PS_REGIONS: PS_REGIONS, PS_LOOSE: PS_LOOSE, psIsGame_: psIsGame_, PS_DEMO: PS_DEMO, psRegionLists: () => [PS_NAMES, PS_GRIDCON] };");
 const fs = require("fs"), path = require("path");
 
 // Each game's price in every region, for the game pages' regional price table: data/compare/xbox-<n>.json,
@@ -223,6 +223,7 @@ const jobs = {
     console.log("== PlayStation US done (" + secs() + ")");
     try { psExportCatalog_(); } catch (e) { console.log("Full game list failed: " + e.message); process.exitCode = 1; }
     console.log("== full game list done (" + secs() + ")");
+    try { require("./jobs/ps-posters").psPosters(rt.DATA_DIR); } catch (e) { console.log("Posters failed: " + e.message); }
     psRegionEditions("US", PS_ED_RUN, Date.now() + 10 * 60000, false);   // the US editions of new games and deals
     Object.keys(__XBOX.PS_REGIONS).forEach(code => {
       let ok = false;
@@ -254,10 +255,13 @@ const jobs = {
   psmorning() {
     exportPlayStation_({ maxLookups: 800 });
     try { psExportCatalog_(); } catch (e) { console.log("Full game list failed: " + e.message); process.exitCode = 1; }
+    try { require("./jobs/ps-posters").psPosters(rt.DATA_DIR); } catch (e) { console.log("Posters failed: " + e.message); }
     try { buildPsCompare(); } catch (e) { console.log("Compare failed: " + e.message); }
   },
   // publishers, store ratings and descriptions, looked up a part at a time
   psfill() { psFillPublishers(); },
+  // PlayStation posters only (jobs/ps-posters.js), for testing
+  psposters() { require("./jobs/ps-posters").psPosters(rt.DATA_DIR); },
   // PlayStation game pages
   pspages() {
     const n = gamePagesFor_("PS_");
