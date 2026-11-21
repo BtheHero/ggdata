@@ -6,8 +6,9 @@ Scheduled jobs that collect game store data (prices, sales, add-ons) and publish
 - `runtime/appsscript.js`: stand-ins for the Apps Script services (web requests, files, settings)
 - `jobs/media.js`: screenshots, trailers, key art and genres of every game (links only)
 - `jobs/descriptions.js`: every game's store description in the site's other languages (`desc/<xbox|ps>-<lang>-<n>.json`), from each
-  store in that language, else machine-translated with the Claude API (Message Batches; repository secret `ANTHROPIC_API_KEY`, optional;
-  `TRANSLATE_MODEL`, `MT_MAX` games a run). `node run.js desc`, in the Media workflow
+  store in that language, else machine-translated: with GitHub Models, free (the workflow's own token with `models: read`; `GH_MODEL`,
+  `GH_MAX` requests a run, within the free tier's ~150 a day), or with the Claude API instead when the repository secret
+  `ANTHROPIC_API_KEY` is set (Message Batches; `TRANSLATE_MODEL`, `MT_MAX` games a run). `node run.js desc`, in the Media workflow
 - `jobs/lists.js`: the site's list pages (best games of the year, kept for every year; upcoming and recent releases; publishers; free games; top Metacritic; most wanted; PS Plus new and announced) and the home page's publisher rows
 - `run.js`: runs one job (`node run.js xbox`, `node run.js media`). The Xbox job also looks up, in each region's own store,
   the prices its browse list leaves out (`xbox_gaps_<code>.json`, merged into the region's price file, with `na`: games not

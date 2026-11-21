@@ -8,6 +8,9 @@ on:
 concurrency:
   group: media-files   # jobs that write the same files wait for each other (the others run alongside: each uploads only what it changed)
   cancel-in-progress: false
+permissions:
+  contents: read
+  models: read   # GitHub Models: the free machine translation of descriptions (jobs/descriptions.js)
 jobs:
   media:
     runs-on: ubuntu-latest
@@ -42,7 +45,9 @@ jobs:
       - name: Descriptions in the site's other languages
         if: always()
         env:
-          # optional: machine translation for the languages a store has no text in (jobs/descriptions.js)
+          # machine translation for the languages a store has no text in (jobs/descriptions.js): GitHub Models, free;
+          # the Claude API instead when the ANTHROPIC_API_KEY secret is set
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node run.js desc
       - name: Upload the files

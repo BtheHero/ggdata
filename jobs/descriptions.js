@@ -10,8 +10,11 @@
 // The stores first: Xbox from Microsoft's catalog (20 games a request, one language at a time); PlayStation from the
 // store's product data (one product and language a request: PS_DESC_MAX requests a run, new games first). A game is
 // looked up again when its English description changes, or after STALE_DAYS. A language the store doesn't have is
-// machine-translated from the English text (the Message Batches API: asked for in one run, collected in a later one),
-// only when ANTHROPIC_API_KEY is set, up to MT_MAX games a run; the store's own text replaces it when there is one.
+// machine-translated from the English text; the store's own text replaces it when there is one. Two ways:
+//   GitHub Models (free, the workflow's own GITHUB_TOKEN with the models: read permission): GH_MAX requests a run, within
+//     the free tier's limits (about 150 requests a day, 15 a minute, 4000 tokens out a request), several languages a request;
+//   the Claude API's Message Batches (when ANTHROPIC_API_KEY is set: used instead): asked for in one run, collected in a
+//     later one, up to MT_MAX games a run.
 const fs = require("fs"), path = require("path");
 
 const SHARDS = 64;
@@ -26,6 +29,10 @@ const STALE_DAYS = 30;
 const PS_DESC_MAX = Number(process.env.PS_DESC_MAX) || 12000;   // PlayStation requests a run
 const MT_MAX = Number(process.env.MT_MAX) || 500;                 // games sent for machine translation a run
 const MT_MODEL = process.env.TRANSLATE_MODEL || "claude-opus-5-5";
+const GH_MODEL = process.env.GH_MODEL || "openai/gpt-4.1-mini";
+const GH_MAX = Number(process.env.GH_MAX) || 140;                // GitHub Models requests a run (the free tier: 150 a day)
+const GH_OUT = 3200;                                              // tokens a request's answer may take (the limit: 4000)
+const GH_GAP_MS = Number(process.env.GH_GAP_MS ?? 4500);                                           // between requests (the limit: 15 a minute)
 const PS_GQL = "https://web.np.playstation.com/api/graphql/v1/op";
 const PS_PRODUCT_HASH = "a128042177bd93dd831164103d53b73ef790d56f51dae647064cb8f9d9fc9d1a";   // metGetProductById
 
@@ -140,8 +147,70 @@ function mtRequest(key, en, langs) {
     output_config: { effort: "low", format: { type: "json_schema", schema } },
     messages: [{ role: "user", content: "Languages: " + langs.map(l => `${l} (${LANG_NAME[l]})`).join(", ") + "\n\nDescription:\n" + en }] } };
 }
+// ---------- machine translation (GitHub Models) ----------
+// the tokens a language's translation takes, about (languages not in the Latin alphabet: more)
+const outTokens = (en, l) => Math.ceil(en.length / 4 * (["ru", "ja", "ko", "zh"].includes(l) ? 2 : 1.4)) + 20;
+// the languages a game still needs, in groups that fit one answer
+function packLangs(en, langs) {
+  const groups = [];
+  let cur = [], size = 0;
+  for (const l of langs) {
+    const t = outTokens(en, l);
+    if (t > GH_OUT) continue;
+    if (cur.length && size + t > GH_OUT) { groups.push(cur); cur = []; size = 0; }
+    cur.push(l); size += t;
+  }
+  if (cur.length) groups.push(cur);
+  return groups;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function ghTranslate(en, langs) {
+  const res = await fetch("https://models.github.ai/inference/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/vnd.github+json", authorization: "Bearer " + process.env.GITHUB_TOKEN },
+    body: JSON.stringify({ model: GH_MODEL, max_tokens: 4000, temperature: 0.2, response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM + " Answer with a JSON object: one key per language code asked for, the translation as its value." },
+        { role: "user", content: "Languages: " + langs.map(l => `${l} (${LANG_NAME[l]})`).join(", ") + "\n\nDescription:\n" + en }] }) });
+  if (!res.ok) { const e = new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`); e.status = res.status; throw e; }
+  const j = await res.json(), c = j.choices && j.choices[0];
+  if (!c || c.finish_reason !== "stop") throw new Error("answer cut off (" + (c && c.finish_reason) + ")");
+  const out = JSON.parse(c.message.content), got = {};
+  langs.forEach(l => { const v = typeof out[l] === "string" ? out[l].trim() : ""; if (v && !sameText(v, en)) got[l] = v; });
+  return got;
+}
+async function githubModels(all, loc) {
+  let used = 0, got = 0, failed = 0, inRow = 0;
+  outer:
+  for (const plat of ["xbox", "ps"]) {
+    for (const id of Object.keys(all[plat])) {
+      const g = all[plat][id];
+      if (!g.seen) continue;   // (only games the stores have been asked about)
+      for (const langs of packLangs(g.en, LANGS.filter(l => !loc[plat][l][id]))) {
+        if (used >= GH_MAX) break outer;
+        if (used) await sleep(GH_GAP_MS);
+        used++;
+        try {
+          const out = await ghTranslate(g.en, langs);
+          Object.keys(out).forEach(l => { loc[plat][l][id] = [out[l], 1]; got++; });
+          inRow = 0;
+        } catch (e) {
+          failed++; inRow++;
+          if (e.status === 429) { console.log("GitHub Models: the free tier's limit reached, stopping for this run (" + e.message + ")"); break outer; }
+          if (e.status === 401 || e.status === 403) { console.log("GitHub Models: not allowed (" + e.message + "): the workflow needs the models: read permission"); break outer; }
+          if (inRow >= 5) { console.log("GitHub Models: 5 failures in a row, stopping for this run (" + e.message + ")"); break outer; }
+        }
+      }
+    }
+  }
+  console.log(`Machine translation (GitHub Models, ${GH_MODEL}): ${used} requests, ${got} descriptions, ${failed} failed`);
+}
+
 async function machineTranslate(dir, all, loc) {
-  if (!process.env.ANTHROPIC_API_KEY) { console.log("Machine translation: skipped (no ANTHROPIC_API_KEY)"); return; }
+  if (!process.env.ANTHROPIC_API_KEY) {
+    if (process.env.GITHUB_TOKEN) return githubModels(all, loc);
+    console.log("Machine translation: skipped (no GITHUB_TOKEN or ANTHROPIC_API_KEY)"); return;
+  }
   const Anthropic = require("@anthropic-ai/sdk");
   const client = new Anthropic();
   const file = path.join(dir, "mt-batches.json");
@@ -232,4 +301,4 @@ async function descriptions(dataDir) {
   for (const plat of ["xbox", "ps"]) LANGS.forEach(l => saveLang(dir, plat, l, loc[plat][l]));
 }
 
-module.exports = { descriptions, shardOf, LANGS };
+module.exports = { descriptions, shardOf, LANGS, packLangs };
