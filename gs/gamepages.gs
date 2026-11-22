@@ -337,6 +337,21 @@ function catSquare_(r) {
   return p.length === 5 && q.length === 2 ? [p[0], q[0], p[2], p[3], q[1]].join(".") : "";
 }
 
+// An edition's contents ([[id, title, art, has a page, type]]) as its page lists them: not the edition itself (the store
+// lists some editions inside their own contents: Sea of Thieves: 2026 Deluxe Edition), each item once (by id, then by
+// name: Fallout 4: Anniversary Edition lists its Creations Bundle twice), the game(s) first
+function incTidy_(items, selfId, selfTitle) {
+  const key = t => norm_(String(t || "").replace(/[™®©]/g, ""));
+  const self = key(selfTitle), ids = new Set(), names = new Set();
+  return items.filter(x => {
+    const k = key(x[1]);
+    if ((x[0] && x[0] === selfId) || (self && k === self) || (x[0] && ids.has(x[0])) || names.has(k)) return false;
+    if (x[0]) ids.add(x[0]);
+    names.add(k);
+    return true;
+  }).map((x, i) => [x, i]).sort((a, b) => (/^(game|application)$/i.test(b[0][4] || "") ? 1 : 0) - (/^(game|application)$/i.test(a[0][4] || "") ? 1 : 0) || a[1] - b[1]).map(x => x[0]);
+}
+
 function shardOf_(id) {
   let h = 0;
   const s = String(id).toUpperCase();
@@ -574,6 +589,52 @@ function gamePagesFor_(pre) {
     console.log("PlayStation edition pages made: " + Object.keys(made).length);
   }
 
+  // PlayStation editions: what each includes, as the store lists it (jobs/ps-editions.js: ps_edfeatures.json {f: {product
+  // id: [item names]}}): the edition's own page's "What's included" (g.inc), under its card on the game's other pages (g.edi),
+  // and the add-ons it includes say so on their pages (g.inb). An item named like the game is the game; one named like one
+  // of the game's add-ons ("Master Vacation Bundle": "Like a Dragon: Infinite Wealth - Master Vacation Bundle") is that
+  // add-on; the others are listed as the store words them (no link).
+  if (ps) {
+    const feat = psReadJson_("PS_EDFEAT_FILE_ID", { f: {} }).f || {};
+    const page = pid => games[pid] && games[pid].a && games[games[pid].a] ? games[pid].a : pid;
+    const nk = t => norm_(psName_(String(t || "")));
+    const inb = {};
+    let n = 0;
+    Object.keys(games).forEach(id => {
+      const g = games[id];
+      if (g.a || !g.ed || !g.ed.length) return;
+      // the game itself: this page, or (an edition page) the game's page it was made from
+      const gameId = /^\d+$/.test(id) ? id : (g.cn && games[g.cn] && !games[g.cn].a ? g.cn : id), game = games[gameId];
+      const gk = nk(game.t), gkey = psGameKey_(game.t), ads = (game.ad || []).filter(r => r && r[0] && r[1]).map(r => [r, nk(r[1])]);
+      const itemOf = name => {
+        const k = nk(name);
+        if (!k) return null;
+        if (k === gk || (psGameKey_(name) === gkey && !PS_EDNAME.test(name))) return [gameId, game.t, String(game.q || game.i || "").replace("https://image.api.playstation.com/vulcan/ap/rnd/", "~"), 1, "Game"];
+        const hit = ads.find(([r, rk]) => rk === k || (k.length >= 6 && rk.endsWith(k)));
+        if (hit) return [hit[0][0], hit[0][1], hit[0][2] || "", games[hit[0][0]] ? 1 : 0, hit[0][5] || "Add-on"];
+        return ["", String(name), "", 0, ""];
+      };
+      const edi = {};
+      g.ed.concat([[id]]).forEach(r => {
+        const pid = r[0], f = feat[pid] || (games[pid] && games[pid].pi && feat[games[pid].pi]);
+        if (!f || f.length < 2) return;
+        const items = incTidy_(f.map(itemOf).filter(Boolean), page(pid), (games[page(pid)] || {}).t);
+        if (items.length < 2) return;
+        if (pid !== id) edi[pid] = items.map(x => x[1]).slice(0, 12);
+        const e = games[page(pid)];
+        if (e && !e.inc) {
+          e.inc = incTidy_(items, page(pid), e.t).slice(0, 40);
+          if (e.inc.length < 2) { delete e.inc; return; }
+          n++;
+          items.forEach(x => { if (x[0] && x[0] !== gameId && games[x[0]] && games[x[0]].kd) (inb[x[0]] = inb[x[0]] || []).push(page(pid)); });
+        }
+      });
+      if (Object.keys(edi).length) g.edi = Object.assign(g.edi || {}, edi);
+    });
+    Object.keys(inb).forEach(id => { games[id].inb = Array.from(new Set((games[id].inb || []).concat(inb[id]))).slice(0, 12); });
+    console.log("PlayStation editions with what they include: " + n + "; add-ons included in an edition: " + Object.keys(inb).length);
+  }
+
   // Xbox editions (bundles): what each includes (g.inc: [[id, title, art, has a page, store product type]], its own page's
   // "What's included"), each add-on's "Included in" (g.inb: edition ids, with the add-on relations' above), and on every
   // page with other editions, what those include (g.edi: {edition id: [item titles]}, under each edition's card)
@@ -587,11 +648,11 @@ function gamePagesFor_(pre) {
       if (!g || g.a || items.length < 2) return;
       // (an "… Edition Upgrade" in an edition's contents is how the store builds that edition, not something it adds)
       const isUp = x => /\bupgrade\b/i.test((pg(x) && games[pg(x)].t) || (bn[x] || [])[0] || "");
-      g.inc = items.filter(x => !isUp(x)).map(x => {
+      g.inc = incTidy_(items.filter(x => !isUp(x)).map(x => {
         const p = pg(x), nm = bn[x] || [];
         const t = (p && games[p].t) || nm[0];
-        return t ? [p || x, t, (p && (games[p].q || games[p].i)) || nm[2] || "", p ? 1 : 0, nm[1] || ""] : null;
-      }).filter(Boolean).slice(0, 40);
+        return t ? [p || x, t, (p && (games[p].q || games[p].i)) || nm[2] || "", p ? 1 : 0, nm[1] || (p ? games[p].kd || "Game" : "")] : null;
+      }).filter(Boolean), bid, g.t).slice(0, 40);
       if (g.inc.length < 2) { delete g.inc; return; }
       n++;
       items.forEach(x => { const p = pg(x); if (p && p !== bid && games[p].kd && !isUp(x)) (inb[p] = inb[p] || []).push(bid); });

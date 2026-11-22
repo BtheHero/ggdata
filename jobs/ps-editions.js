@@ -17,8 +17,9 @@
 //
 // Kept in data/psed/<code>.json (US: the US editions, the same way), a part at a time (lookups every run, the most in
 // the "psregions" job):
-//   c:  {US concept id: [checked ms, [[product id, name key, kind, platforms, regular price, price, sale end ms], ...]
-//        or null (not sold there), the store's own concept id when it's another]}
+//   c:  {US concept id: [checked ms, [[product id, name key, kind, platforms, regular price, price, sale end ms(,
+//        what it includes: the store's list for the edition, US only)], ...] or null (not sold there), the store's own
+//        concept id when it's another(, 1: US, looked up with what each edition includes)]}
 //   a:  {US add-on product id: [checked ms, product id there or null, price, regular price, sale end ms]}
 //   pc: (US) {product id: concept id} of the deals whose game the other files don't say
 //   names: {name key: concept id} of the store's games (its full game list, read by the daily run), for the games it
@@ -98,7 +99,7 @@ function psMatchEditions_(us, here) {
 
 // ---------- lookups ----------
 // One store's answer for a game: its editions, null (not sold there), or undefined (no answer: asked again later)
-function editionsOf_(res) {
+function editionsOf_(res, withFeatures) {
   let j = null;
   try { if (res && res.getResponseCode() === 200) j = JSON.parse(res.getContentText()); } catch (e) {}
   if (!j || !j.data) return undefined;
@@ -112,7 +113,11 @@ function editionsOf_(res) {
     if (base === null && price === null) return;
     if (price === null || pr.isTiedToSubscription || pr.isExclusive) price = base;   // ("Included" with PS Plus, member prices)
     if (base === null) base = price;
-    eds.push([String(p.id), edKey(p.name), String(p.storeDisplayClassification || ""), platsOf(p.platforms), base, price, price < base ? Number(pr.endTime) || 0 : 0]);
+    const e = [String(p.id), edKey(p.name), String(p.storeDisplayClassification || ""), platsOf(p.platforms), base, price, price < base ? Number(pr.endTime) || 0 : 0];
+    // what the edition includes, as the store lists it ("Like a Dragon: Infinite Wealth", "Master Vacation Bundle")
+    const f = withFeatures && p.edition && Array.isArray(p.edition.features) ? p.edition.features.map(x => String(x || "").trim()).filter(Boolean).slice(0, 30) : [];
+    if (f.length > 1) e.push(f);
+    eds.push(e);
   });
   return eds;
 }
@@ -123,7 +128,7 @@ function lookupConcepts_(code, ids, until) {
     let res = [];
     try { res = UrlFetchApp.fetchAll(chunk.map(id => psRequest_("metGetPricingDataByConceptId", { conceptId: String(id) }, locale))); }
     catch (e) { console.log("PlayStation " + code + " edition lookup failed: " + e.message); break; }
-    chunk.forEach((id, k) => { const e = editionsOf_(res[k]); if (e !== undefined) out[id] = e; });
+    chunk.forEach((id, k) => { const e = editionsOf_(res[k], code === "US"); if (e !== undefined) out[id] = e; });
   }
   return out;
 }
@@ -193,12 +198,13 @@ function psEditionLookups(code, opts) {
     const ids = new Set(x[1].map(e => e[0]));
     return g[1].some(p => !ids.has(p)) || (g[0] !== null && !x[1].some(e => e[4] === g[0]));
   };
-  const prio = id => !d.c[id] ? 0 : changed(id) ? 1 : old(d.c[id]) ? 2 : 9;
+  // (US: games looked up before the editions' contents were kept are asked again, after the others)
+  const prio = id => !d.c[id] ? 0 : changed(id) ? 1 : old(d.c[id]) ? 2 : code === "US" && d.c[id][1] && !d.c[id][3] ? 3 : 9;
   const order = side.cons.map((id, i) => [id, prio(id), i]).filter(x => x[1] < 9)
     .sort((a, b) => a[1] - b[1] || (a[1] === 2 ? d.c[a[0]][0] - d.c[b[0]][0] : a[2] - b[2])).slice(0, max).map(x => x[0]);
   const got = lookupConcepts_(code, order, until);
   let sold = 0, none = 0;
-  Object.keys(got).forEach(id => { d.c[id] = [now, got[id]]; if (got[id]) sold++; else none++; });
+  Object.keys(got).forEach(id => { d.c[id] = code === "US" ? [now, got[id], 0, 1] : [now, got[id]]; if (got[id]) sold++; else none++; });
   // a game this store sells under another concept id (older games: Call of Duty: Modern Warfare Remastered): by name
   if (code !== "US") {
     const title = {};
@@ -257,10 +263,20 @@ function psEditionLookups(code, opts) {
   const liveCons = new Set(side.cons);
   Object.keys(d.c).forEach(id => { if (!liveCons.has(id) || now - d.c[id][0] > 30 * 864e5) delete d.c[id]; });
   save(code, d);
+  if (code === "US") saveFeatures_(d);
   const known = side.cons.filter(id => d.c[id]).length;
   console.log("PlayStation " + code + " editions: looked up " + Object.keys(got).length + " of " + order.length + " games (" + sold + " sold there, " + none +
               " not), " + addOns + " add-ons; " + known + " of " + side.cons.length + " games known (" + Math.round((Date.now() - t0) / 1000) + " s)");
   return order.length - Object.keys(got).length;   // games still to ask
+}
+
+// What each US edition includes (the store's list), for the game pages (gs/gamepages.gs): ps_edfeatures.json
+// {f: {product id: [item names]}}
+function saveFeatures_(d) {
+  const f = {};
+  Object.keys(d.c).forEach(con => { ((d.c[con] && d.c[con][1]) || []).forEach(e => { if (Array.isArray(e[7]) && e[7].length > 1) f[e[0]] = e[7]; }); });
+  saveJsonToDrive_({ updatedAt: new Date().toISOString(), f }, "ps_edfeatures.json", "PS_EDFEAT_FILE_ID");
+  console.log("PlayStation editions with what they include: " + Object.keys(f).length);
 }
 
 // ---------- the region's price file ----------
@@ -350,6 +366,13 @@ function psResolveRegion_(code) {
       const h = m.get(g.pid);
       if (h) put(g.key, h[0], priceEd(h));
       else if (!rf.prices[g.key] || ed.indexOf(g.key) >= 0) notSold(g.key);   // (the store's own deal list wins)
+    });
+    // every edition of the game paired with one here, under its US product id: the editions' own pages (Like a Dragon:
+    // Infinite Wealth Deluxe Edition) price that edition in this store, on sale or not (buildPsCompare in run.js)
+    us.forEach(e => {
+      if (!PSE_GAME.test(e[2]) || rf.prices[e[0]]) return;
+      const h = m.get(e[0]);
+      if (h) put(e[0], h[0], priceEd(h));
     });
   });
   // add-ons
