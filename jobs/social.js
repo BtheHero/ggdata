@@ -1,8 +1,8 @@
 // Posts deals to social media: Bluesky, Facebook, Instagram, Pinterest and X (Twitter).
 //
 //   node jobs/social.js deals xbox|ps   after each store run: the big deals on well-known, well-reviewed games (a deep
-//                                       discount, a high Metascore, many store ratings), each game once every REPOST_DAYS,
-//                                       at most SOCIAL_MAX_DEALS a run
+//                                       discount, a high Metascore, many store ratings), each game once every REPOST_DAYS;
+//                                       SOCIAL_DAILY deals a day per store (default 2), spread through the day
 //   node jobs/social.js weekly          once a week: the week's 5 best deals on Xbox and on PlayStation (data/weekly/…)
 //   node jobs/social.js next            every hour: posts the next waiting post, if the last one is far enough behind
 //
@@ -37,7 +37,7 @@ const GRAPH = "https://graph.facebook.com/" + (env.FB_GRAPH_VERSION || "v23.0");
 const MIN_PCT = Number(env.SOCIAL_MIN_PCT || 75);       // a deal is posted with at least this discount…
 const MIN_MC = Number(env.SOCIAL_MIN_METASCORE || 83);  // …a Metascore of at least this…
 const MIN_RATINGS = Number(env.SOCIAL_MIN_RATINGS || 2000);   // …and at least this many ratings in the store
-const MAX_DEALS = Number(env.SOCIAL_MAX_DEALS || 3);    // per run (two runs a day per store)
+const DAILY = Math.max(1, Number(env.SOCIAL_DAILY || 2));   // deals posted a day on each store (Xbox, PlayStation)
 const REPOST_DAYS = 7;    // a game is posted at most once a week
 const PIN_API = env.PINTEREST_API || "https://api.pinterest.com";   // Trial apps can be pointed at https://api-sandbox.pinterest.com
 const X_DAILY_CAP = Number(env.X_DAILY_CAP || 15);      // X bills every post: a cap on the spend
@@ -146,6 +146,12 @@ function dealPost(plat, g) {
     deal: { price: p.price, msrp: p.msrp, currency: p.currency, pct, ends: g.saleEnds || "" } };   // for its pictures (jobs/social-card.js deals)
 }
 function dealPosts(plat) {
+  // the queue holds at most a day's posts per store: the room left is what this run picks (a game it doesn't pick
+  // isn't remembered, so a later run can still post it)
+  const sent = read("social/sent.json", { sent: {} }).sent || {};
+  const waiting = (read("social/" + plat + "-queue.json", { items: [] }).items || []).filter(it => !sent[it.id] && !stale(it)).length;
+  const room = Math.max(0, DAILY - waiting);
+  console.log("Social " + plat + ": " + waiting + " waiting in the queue, room for " + room + " (" + DAILY + " a day)");
   const posted = read("social/" + plat + "-posted.json", {});
   const cutoff = new Date(Date.now() - REPOST_DAYS * 864e5).toISOString().slice(0, 10);
   const games = (read(plat + "_sales.json", { games: [] }).games || []).filter(g => {
@@ -159,10 +165,10 @@ function dealPosts(plat) {
   }).sort((a, b) => b.rev.mc - a.rev.mc || b.rev.rc - a.rev.rc);
   const seen = new Set(), picked = [];
   for (const g of games) {   // one edition per game
+    if (picked.length >= room) break;
     const k = gameKey(g.title);
     if (seen.has(k)) continue;
     seen.add(k); picked.push(g);
-    if (picked.length >= MAX_DEALS) break;
   }
   return {
     posts: picked.map(g => dealPost(plat, g)),
@@ -390,20 +396,23 @@ async function resendPost(nets) {
 // ---------- the queue: one post at a time, spread over the day ----------
 // The store runs and the weekly roundup don't post: they add their posts to data/social/<xbox|ps|weekly>-queue.json
 // (each file written by its own job only), and `node jobs/social.js next` (.github/workflows/social-queue.yml, every hour)
-// posts the next one when the last post is far enough behind. What it sent is in data/social/sent.json (its own file).
+// posts the next one when its time has come. What it sent is in data/social/sent.json (its own file).
 //   SOCIAL_HOURS     the hours (UTC) posts go out, "13-3": 13:00 to 2:59 UTC = 8 AM to 10 PM Eastern
-//   SOCIAL_MIN_GAP   minutes at least between two posts (default 100); with fewer posts waiting, they're spread over
-//                    what's left of the day's hours, up to SOCIAL_MAX_GAP (default 240)
-//   SOCIAL_KEEP_HOURS  a post still waiting after this many hours is dropped (default 24): the deal is old news by then
+//   SOCIAL_DAILY     deals a day on each store (default 2). The day's posting hours are cut into that many slots per
+//                    store (2 stores x 2 = 4: 13:00, 16:30, 20:00, 23:30 UTC), one deal each, the stores taking turns;
+//                    a slot missed (nothing waiting yet) is caught up later, at least SOCIAL_MIN_GAP minutes after the last
+//   SOCIAL_MIN_GAP   minutes at least between two posts (default 100)
+//   SOCIAL_KEEP_HOURS  a post still waiting after this many hours is dropped (default 36): the deal is old news by then
 const QUEUES = ["weekly", "xbox", "ps"];   // the weekly roundup first
+const STORES = Object.keys(PLAT);
 const [H_FROM, H_TO] = String(env.SOCIAL_HOURS || "13-3").split("-").map(Number);
-const MIN_GAP = Number(env.SOCIAL_MIN_GAP || 100), MAX_GAP = Number(env.SOCIAL_MAX_GAP || 240);
-const KEEP_MS = Number(env.SOCIAL_KEEP_HOURS || 24) * 3600e3;
-// minutes left today in the posting hours (0 outside them); the hours can run past midnight UTC (13-3)
-function minutesLeft(now) {
-  const h = now.getUTCHours(), m = h * 60 + now.getUTCMinutes(), from = H_FROM * 60, to = H_TO * 60;
-  if (from < to) return m >= from && m < to ? to - m : 0;
-  return m >= from ? 1440 - m + to : m < to ? to - m : 0;
+const MIN_GAP = Number(env.SOCIAL_MIN_GAP || 100);
+const KEEP_MS = Number(env.SOCIAL_KEEP_HOURS || 36) * 3600e3;
+const WINDOW = ((H_TO - H_FROM + 24) % 24 || 24) * 60;   // minutes of posting hours a day
+// minutes since today's posting hours began, or -1 outside them (the hours can run past midnight UTC: 13-3)
+function minutesIn(now) {
+  const m = now.getUTCHours() * 60 + now.getUTCMinutes(), d = (m - H_FROM * 60 + 1440) % 1440;
+  return d < WINDOW ? d : -1;
 }
 const stale = it => Date.now() - Date.parse(it.queuedAt) > KEEP_MS || (it.ends && Date.parse(it.ends) <= Date.now() + 3 * 3600e3);
 function enqueue(name, posts) {
@@ -431,19 +440,33 @@ async function next(nets) {
   const log = read("social/sent.json", { sent: {} }), sent = log.sent || (log.sent = {}), now = new Date();
   const waiting = [];
   QUEUES.forEach(q => (read("social/" + q + "-queue.json", { items: [] }).items || []).forEach(it => { if (!sent[it.id] && !stale(it)) waiting.push(it); }));
-  const left = minutesLeft(now), since = log.last ? (now - Date.parse(log.last)) / 60000 : Infinity;
-  const gap = Math.min(MAX_GAP, Math.max(MIN_GAP, waiting.length ? left / waiting.length : MAX_GAP));
-  console.log("Social queue: " + waiting.length + " waiting; " + (left ? left + " min of posting hours left today" : "outside the posting hours (" + H_FROM + "-" + H_TO + " UTC)") +
-              "; last post " + (log.last ? Math.round(since) + " min ago" : "never") + "; gap now " + Math.round(gap) + " min");
-  if (!waiting.length || !left || since < gap) return;
-  // the weekly roundup first, then the oldest; the other store than the last post's when one is waiting
-  const order = it => QUEUES.indexOf(it.plat);
-  waiting.sort((a, b) => (order(a) === 0 ? 0 : 1) - (order(b) === 0 ? 0 : 1) || a.queuedAt.localeCompare(b.queuedAt));
-  const p = waiting.find(it => it.plat === "weekly") || waiting.find(it => it.plat !== log.lastPlat) || waiting[0];
+  const into = minutesIn(now), since = log.last ? (now - Date.parse(log.last)) / 60000 : Infinity;
+  // the deals posted today (since the posting hours began), per store
+  const dayStart = into < 0 ? now : new Date(now - into * 60000 - now.getUTCSeconds() * 1000);
+  const deals = (log.deals || []).filter(d => Date.parse(d.at) >= dayStart - 0);
+  const count = plat => deals.filter(d => d.plat === plat).length;
+  const slots = DAILY * STORES.length, due = into < 0 ? 0 : Math.min(slots, Math.floor(into / (WINDOW / slots)) + 1);   // slots begun so far
+  console.log("Social queue: " + waiting.length + " waiting; " + (into < 0 ? "outside the posting hours (" + H_FROM + "-" + H_TO + " UTC)" :
+              "deals today: " + STORES.map(s => PLAT[s].name + " " + count(s) + "/" + DAILY).join(", ") + ", " + due + " of " + slots + " slots begun") +
+              "; last post " + (log.last ? Math.round(since) + " min ago" : "never"));
+  if (!waiting.length || into < 0 || since < MIN_GAP) return;
+  // the weekly roundup first; else a deal, when a slot is due: from the store with the fewest posted today (the other
+  // store than the last post's on a tie), its oldest waiting first. A store's deals beyond today's DAILY wait for tomorrow.
+  let p = waiting.find(it => it.plat === "weekly");
+  if (!p && deals.length < due) {
+    const ok = waiting.filter(it => STORES.includes(it.plat) && count(it.plat) < DAILY);
+    ok.sort((a, b) => count(a.plat) - count(b.plat) || (a.plat === log.lastPlat) - (b.plat === log.lastPlat) || a.queuedAt.localeCompare(b.queuedAt));
+    p = ok[0];
+  }
+  if (!p) return;
   if (DRY) { console.log("\n" + p.head + "\n" + p.line + "\n" + p.url + " (dry run: not sent)"); return; }
   const any = await postNow(p, nets);
   sent[p.id] = now.toISOString();
-  if (any) { log.last = now.toISOString(); log.lastPlat = p.plat; }   // all networks failed: the next one may go at the next run
+  if (any) {   // all networks failed: the next one may go at the next run, and the slot isn't used up
+    log.last = now.toISOString(); log.lastPlat = p.plat;
+    if (STORES.includes(p.plat)) deals.push({ plat: p.plat, at: log.last });
+  }
+  log.deals = deals;
   Object.keys(sent).forEach(k => { if (Date.parse(sent[k]) < Date.now() - 7 * 864e5) delete sent[k]; });
   write("social/sent.json", log);
   console.log(any ? "Posted: " + p.title : "Not posted anywhere: " + p.title);

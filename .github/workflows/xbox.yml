@@ -68,6 +68,7 @@ jobs:
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           SOCIAL_DRY_RUN: ${{ vars.SOCIAL_DRY_RUN }}
+          SOCIAL_DAILY: ${{ vars.SOCIAL_DAILY }}
         run: node jobs/social.js deals xbox
       - name: The queued deals' pictures (poster, price and discount, for Instagram and Pinterest)
         if: ${{ !cancelled() && github.event_name == 'schedule' }}

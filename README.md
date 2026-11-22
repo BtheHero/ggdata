@@ -22,7 +22,7 @@ Scheduled jobs that collect game store data (prices, sales, add-ons) and publish
   its Xbox cover, instead of their square art cropped (`ps_posters.json`)
 - `gs/addons.gs`: Xbox add-ons, and what each edition includes (`xbox_bundles.json`); every add-on gets a game page
 - `jobs/social-card.js`: the weekly roundup's pictures (the week's top 5 deals, tall and wide), served by the site at /social-img/
-- `jobs/social.js`: posts the big new deals (after each store run) and the week's best deals (Sundays) to Bluesky, Facebook, Instagram, Pinterest and X, one at a time through the day (`social-queue.yml`, hourly); setup in `SOCIAL.md`
+- `jobs/social.js`: posts big deals (2 a day on each store) and the week's best deals (Sundays) to Bluesky, Facebook, Instagram, Pinterest and X, one at a time through the day (`social-queue.yml`, hourly); setup in `SOCIAL.md`
 - `tools/report.js`: a report on the automatic jobs (`node tools/report.js report/`): every run of the last 7 days, its
   result and failed steps, what its log says it did, the files it uploaded, and each social post network by network.
   `report.yml` publishes it every 6 hours to Cloudflare Pages (`report-site/`, project `ggdata-report`), behind a password.

@@ -2,10 +2,10 @@
 
 `jobs/social.js` posts deals from the data the jobs already build:
 
-- **Big deals on great games**: after every scheduled Xbox and PlayStation run (4 runs a day), up to 3 deals per run on games at least 75% off, with a Metascore of 83 or more and at least 2,000 ratings in the store, best Metascore first. Each game is posted at most once a week, whichever edition is on sale. The post says when the sale ends.
+- **Big deals on great games**: **2 a day on each store** (Xbox and PlayStation), picked by the scheduled store runs from games at least 75% off, with a Metascore of 83 or more and at least 2,000 ratings in the store, best Metascore first. Each game is posted at most once a week, whichever edition is on sale. The post says when the sale ends.
 - **Weekly roundup**: Sundays at 16:23 UTC (`.github/workflows/social-weekly.yml`), the 5 best deals of the week on each store, linking to `/best-deals/<xbox|ps>`.
 
-**One at a time**: the runs above don't post straight away. They queue their posts, and **Social queue** (`.github/workflows/social-queue.yml`, every hour) posts the next one, so posts are spread over the day instead of several back to back. Posts go out between 13:00 and 3:00 UTC (8 AM to 10 PM Eastern), at least 100 minutes apart; when only a few are waiting, they're spread over what's left of the day (up to 4 hours apart). The weekly roundup goes first, and the two stores take turns. A post still waiting after 24 hours, or whose sale ends within 3 hours, is dropped. A manual **Social weekly** run still posts right away.
+**One at a time**: the runs above don't post straight away. They queue their posts, and **Social queue** (`.github/workflows/social-queue.yml`, every hour) posts the next one, so posts are spread over the day instead of several back to back. Posts go out between 13:00 and 3:00 UTC (8 AM to 10 PM Eastern), cut into 4 slots, one deal each, the stores taking turns: about 13:40, 16:40, 20:40 and 23:40 UTC (8:40 AM, 11:40 AM, 3:40 PM and 6:40 PM Eastern). A slot with nothing waiting yet is caught up later, at least 100 minutes after the last post. A store's queue holds at most a day's deals (2): a run picks only what fits, and a game it leaves out can still be picked by a later run. The weekly roundup goes first, on top of the day's deals. A post still waiting after 36 hours, or whose sale ends within 3 hours, is dropped. A manual **Social weekly** run still posts right away.
 
 Each network posts only once its secrets are set (GitHub: Settings → Secrets and variables → Actions → New repository secret). Leave a network's secrets unset to skip it. If a post fails on one network, the others still post, and the store run never fails because of it.
 
@@ -34,7 +34,7 @@ Images: on Instagram and Pinterest, a deal shows the game's poster with the plat
 5. Secrets: `FB_PAGE_ID`, `FB_PAGE_TOKEN`, `IG_USER_ID`.
 
 Links aren't clickable in Instagram captions, so Instagram posts say "Link in bio": put `https://gamedealtrack.com` in
-the profile. Instagram allows 100 API posts a day; this posts at most about 13.
+the profile. Instagram allows 100 API posts a day; this posts at most 5 (4 deals, and the weekly roundup on Sundays).
 
 ## Pinterest (free)
 
@@ -108,10 +108,9 @@ Repository variables, if the defaults don't suit (add them to the steps' `env` i
 | `SOCIAL_MIN_PCT` | 75 | Discount a deal needs |
 | `SOCIAL_MIN_METASCORE` | 83 | Metascore the game needs |
 | `SOCIAL_MIN_RATINGS` | 2000 | Ratings the game needs in the store |
-| `SOCIAL_MAX_DEALS` | 3 | Deals per run per store |
+| `SOCIAL_DAILY` | 2 | Deals a day on each store (Xbox, PlayStation), spread through the posting hours |
 | `SOCIAL_HOURS` | 13-3 | Hours (UTC) posts go out, from-to |
 | `SOCIAL_MIN_GAP` | 100 | Minutes at least between two posts |
-| `SOCIAL_MAX_GAP` | 240 | Minutes at most between two posts while some are waiting |
 | `X_DAILY_CAP` | 15 | Posts a day on X (through Buffer or X's paid API) |
 | `FB_GRAPH_VERSION` | v23.0 | Facebook Graph API version |
 

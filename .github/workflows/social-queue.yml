@@ -1,6 +1,6 @@
 # Social media, one post at a time: the store runs and the weekly roundup queue their posts (data/social/*-queue.json),
 # and this posts the next one each hour, when the last post is far enough behind (jobs/social.js "the queue").
-# Settings (repository variables, optional): SOCIAL_HOURS (UTC, default 13-3), SOCIAL_MIN_GAP and SOCIAL_MAX_GAP (minutes).
+# Settings (repository variables, optional): SOCIAL_HOURS (UTC, default 13-3), SOCIAL_DAILY (deals a day per store, default 2), SOCIAL_MIN_GAP (minutes).
 name: Social queue
 on:
   schedule:
@@ -50,7 +50,7 @@ jobs:
           SOCIAL_DRY_RUN: ${{ vars.SOCIAL_DRY_RUN }}
           SOCIAL_HOURS: ${{ vars.SOCIAL_HOURS }}
           SOCIAL_MIN_GAP: ${{ vars.SOCIAL_MIN_GAP }}
-          SOCIAL_MAX_GAP: ${{ vars.SOCIAL_MAX_GAP }}
+          SOCIAL_DAILY: ${{ vars.SOCIAL_DAILY }}
         run: node jobs/social.js next
       - name: Upload what was posted
         if: always()
