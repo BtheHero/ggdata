@@ -204,6 +204,15 @@ function buildPsCompare() {
   };
   (cat.games || []).forEach(r => { if (r[0]) add(String(r[0]), String(r[0]), r[3], r[4]); });
   (sales.games || []).forEach(g => { if (g.productId) add(g.productId, g.key || g.productId, g.price, g.msrp); });
+  // every edition of every game (jobs/ps-editions.js: the US editions, each region's prices under the US product id),
+  // so an edition's own page shows that edition's prices, not an old sale's
+  const usEd = (read("psed/US.json") || {}).c || {};
+  let eds = 0;
+  Object.keys(usEd).forEach(con => ((usEd[con] && usEd[con][1]) || []).forEach(e => {
+    if (!e[0] || games[e[0]] || !/^(FULL_GAME|GAME_BUNDLE|PREMIUM_EDITION|BUNDLE)$/.test(e[2]) || !(e[4] > 0)) return;
+    add(e[0], e[0], e[5], e[4]);
+    eds++;
+  }));
   let rates = null;
   try { rates = JSON.parse(UrlFetchApp.fetch("https://open.er-api.com/v6/latest/USD", { muteHttpExceptions: true }).getContentText()).rates; } catch (e) {}
   if (!rates) { const old = read("compare/ps-0.json"); rates = old && old.rates; }
@@ -213,7 +222,7 @@ function buildPsCompare() {
   fs.mkdirSync(path.join(dir, "compare"), { recursive: true });
   const now = new Date().toISOString();
   shards.forEach((g, n) => fs.writeFileSync(path.join(dir, "compare", "ps-" + n + ".json"), JSON.stringify({ updatedAt: now, currency, rates, games: g })));
-  console.log("PlayStation compare: " + Object.keys(games).length + " games in " + Object.keys(currency).length + " regions");
+  console.log("PlayStation compare: " + Object.keys(games).length + " games (" + eds + " more editions) in " + Object.keys(currency).length + " regions");
   try { updateRegionHistory("ps", games, currency); } catch (e) { console.log("Regional history failed: " + e.message); }
 }
 
