@@ -182,10 +182,11 @@ function dealPosts(plat) {
 }
 
 function weeklyPosts() {
-  const posted = read("social/weekly-posted.json", {}), posts = [];
+  // a manual run (SOCIAL_NOW) is remembered apart ("m:<plat>"), so a test during the week doesn't stop Sunday's post
+  const posted = read("social/weekly-posted.json", {}), posts = [], mark = plat => (env.SOCIAL_NOW === "1" ? "m:" : "") + plat;
   for (const plat of ["xbox", "ps"]) {
     const idx = read("weekly/" + plat + "-index.json", { weeks: [] }), wk = (idx.weeks || [])[0];
-    if (!wk || (posted[plat] === wk.week && env.SOCIAL_FORCE !== "1")) continue;   // SOCIAL_FORCE=1: post again (a manual test)
+    if (!wk || (posted[mark(plat)] === wk.week && env.SOCIAL_FORCE !== "1")) continue;   // SOCIAL_FORCE=1: post again (a manual test)
     const week = read("weekly/" + plat + "-" + wk.week + ".json", { games: [] });
     const top = (week.games || []).filter(g => !(g.ends && Date.parse(g.ends) <= Date.now())).slice(0, 5);
     if (top.length < 3) continue;
@@ -194,7 +195,7 @@ function weeklyPosts() {
       line: top.map((g, i) => (i + 1) + ". " + g.title + " " + money(g.price, g.currency) + " (-" + pctOff(g) + "%)").join("\n"),
       url: SITE + "/best-deals/" + plat, image: fullImg(top[0].sq || top[0].image), hero: heroOf(plat, top[0].id), card: cardOf(plat, wk.week), tags: PLAT[plat].tags });
   }
-  return { posts, remember: keys => { posts.filter(p => keys.includes(p.key)).forEach(p => { posted[p.key] = p.week; }); write("social/weekly-posted.json", posted); } };
+  return { posts, remember: keys => { posts.filter(p => keys.includes(p.key)).forEach(p => { posted[mark(p.key)] = p.week; }); write("social/weekly-posted.json", posted); } };
 }
 
 // ---------- the networks ----------
