@@ -886,9 +886,9 @@ function psUpdateHistory_(games, onSale) {
   games.forEach(g => {
     const list = data.h[g.productId] || [], n = list.length;
     g.newSale = n >= 2 && list[n - 1][1] < list[n - 2][1] - 0.02 ? list[n - 1][0] : 0;
-    const st = stars[g.productId], d = dealScore_(g, list, st && st[1] ? st : null, mcNum_(scores[g.productId]));
+    const st = stars[g.productId], d = dealScore_(g, list, st && st[1] ? st : null, mcNum_(scores[g.productId]), "ps");
     g.atLow = !!(d && d.ever);   // a new low (as on Xbox: the first time it's this cheap)
-    g.dealScore = d ? d.score : undefined;
+    g.dealScore = d && d.score ? d.score : undefined;   // (none for games with too few ratings: POP_RATINGS in xbox.gs)
     g.lowEver = d ? d.low : undefined;
   });
   saveJsonToDrive_(data, "ps_history.json", "PS_HISTORY_FILE_ID");

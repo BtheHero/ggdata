@@ -1004,34 +1004,44 @@ const samePrice_ = (a, b) => Math.abs(Number(a) - Number(b)) <= 0.02;
 
 // ---------- New low and deal score ----------
 // A deal's score out of 100, its lowest known price and whether it's a new low. list: the site's own price changes
-// [[yyyymmdd, price]], stars: [average, count], mc: Metascore.
+// [[yyyymmdd, price]], stars: [average, count], mc: Metascore, plat: "xbox" or "ps" (for the popularity part).
 // New low (ever): the first time the game is this cheap: below every earlier price we know (not just equal to an
 // earlier sale's), and it has been on sale before (a first sale isn't a "new low": we don't know its older prices)
-//   discount (up to 40): 80% off or more is full marks
-//   price vs the lowest tracked (up to 25): at the lowest tracked is full marks
+//   discount (up to 35): 80% off or more is full marks
+//   price vs the lowest tracked (up to 20): at the lowest tracked is full marks
 //   how rarely it goes on sale (up to 15): never before is full marks, 6+ sales a year is 3
-//   how good the game is (up to 20): Metascore 95 (or 5 stars) is full marks
+//   how good the game is (up to 15): Metascore 95 (or 5 stars) is full marks
+//   how popular it is (up to 15): its number of store ratings, see POP_RATINGS
 // (unknown parts get a little: a short price history, no Metascore or too few ratings)
+// A game with fewer than POP_RATINGS[plat].min store ratings gets no score (score: null): too little known to rank it
+// among the deals. Its lowest price and new-low tag are still worked out.
+// Popularity points grow with the log of the ratings count, from 0 at min to full marks at full. Each store has its own
+// scale: PlayStation asks players to rate the games they play, so its counts run higher at the top (of the games on sale
+// in Nov 2026: median ~200 ratings on both stores, 90th percentile ~5,000 on Xbox and ~12,500 on PlayStation, top 5%
+// above ~10,000 and ~34,000). min drops roughly the least-rated third of each store's deals.
+const POP_RATINGS = { xbox: { min: 50, full: 20000 }, ps: { min: 100, full: 50000 } };
 const mcNum_ = v => Number(Array.isArray(v) ? v[0] : v) || 0;   // scores files: {id: [Metascore, slug]}
-function dealScore_(g, list, stars, mc) {
+function dealScore_(g, list, stars, mc, plat) {
   const price = Number(g.price) || 0, msrp = Number(g.msrp) || 0;
   if (!(msrp > price) || price <= 0) return null;
+  const pop = POP_RATINGS[plat] || POP_RATINGS.xbox, count = stars ? Number(stars[1]) || 0 : 0;
   const pts = (list || []).map(p => [p[0], p[1], msrp])
     .filter(p => p[1] > 0).sort((a, b) => a[0] - b[0]);
   const earlier = pts.length && samePrice_(pts[pts.length - 1][1], price) ? pts.slice(0, -1) : pts;   // (the current price left out)
   const low = earlier.length ? Math.min(price, Math.min.apply(null, earlier.map(p => p[1]))) : price;
   const day = d => Date.UTC(Math.floor(d / 10000), Math.floor(d / 100) % 100 - 1, d % 100);
   const span = pts.length ? (Date.now() - day(pts[0][0])) / 864e5 : 0;   // days of known prices
-  const D = Math.min((1 - price / msrp) / 0.8, 1) * 40;
-  const L = price <= low + 0.02 ? (span > 90 ? 25 : 12) : msrp > low ? 25 * Math.max(0, 1 - (price - low) / (msrp - low)) * 0.8 : 8;
+  const D = Math.min((1 - price / msrp) / 0.8, 1) * 35;
+  const L = price <= low + 0.02 ? (span > 90 ? 20 : 10) : msrp > low ? 20 * Math.max(0, 1 - (price - low) / (msrp - low)) * 0.8 : 6;
   // sales started: a drop below the regular price after being at it
   let sales = 0;
   pts.forEach((p, i) => { const reg = p[2] || msrp; if (p[1] < reg - 0.02 && (i === 0 || pts[i - 1][1] >= (pts[i - 1][2] || msrp) - 0.02)) sales++; });
   const perYear = span >= 180 ? Math.max(0, sales - 1) / (span / 365) : null;   // (the current sale left out)
   const R = perYear === null ? 6 : Math.max(3, Math.min(15, 15 - 2 * perYear));
-  const Q = mc >= 50 ? Math.max(0, Math.min(20, (mc - 50) / 45 * 20))
-          : stars && stars[1] >= 30 ? Math.max(0, Math.min(20, (stars[0] - 3) / 2 * 20)) : 4;
-  return { score: Math.max(1, Math.min(100, Math.round(D + L + R + Q))), low: Math.round(low * 100) / 100,
+  const Q = mc >= 50 ? Math.max(0, Math.min(15, (mc - 50) / 45 * 15))
+          : stars && stars[1] >= 30 ? Math.max(0, Math.min(15, (stars[0] - 3) / 2 * 15)) : 3;
+  const P = Math.max(0, Math.min(1, Math.log(count / pop.min) / Math.log(pop.full / pop.min))) * 15;
+  return { score: count < pop.min ? null : Math.max(1, Math.min(100, Math.round(D + L + R + Q + P))), low: Math.round(low * 100) / 100,
            ever: earlier.length > 0 && price < Math.min.apply(null, earlier.map(p => p[1])) - 0.02 && earlier.some(p => p[1] < (p[2] || msrp) - 0.02) };
 }
 
@@ -1060,10 +1070,10 @@ function updateHistory_(catalog, games) {
     const id = String(g.productId).toUpperCase(), list = data.h[g.productId] || [];
     const n = list.length;   // date (YYYYMMDD) the current, lower price started
     g.newSale = n >= 2 && list[n - 1][1] < list[n - 2][1] - 0.02 ? list[n - 1][0] : 0;
-    const d = dealScore_(g, list, RATINGS[id], mcNum_(scores[id] || scores[g.productId]));
+    const d = dealScore_(g, list, RATINGS[id], mcNum_(scores[id] || scores[g.productId]), "xbox");
     // a new low: the first time it's this cheap (and it has been on sale before)
     g.atLow = !!(d && d.ever);
-    g.dealScore = d ? d.score : undefined;
+    g.dealScore = d && d.score ? d.score : undefined;   // (none for games with too few ratings: POP_RATINGS)
     g.lowEver = d ? d.low : undefined;
   });
 
