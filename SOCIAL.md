@@ -11,7 +11,16 @@ Each network posts only once its secrets are set (GitHub: Settings → Secrets a
 
 **Test first**: add a repository *variable* (not a secret) `SOCIAL_DRY_RUN` = `1`. The runs then print what they would post in the "Post…" step's log and send nothing. Delete the variable to go live. You can try it straight away from the Actions tab: **Social weekly → Run workflow**. (The deal posts run only on the schedule, not on manual runs.)
 
-Images: on Instagram and Pinterest, a deal shows the game's poster with the platform's logo, its price, the old price struck through, the discount and when the sale ends (drawn by `jobs/social-card.js deals` after each store run: 1080×1350 for Instagram, 1000×1500 for Pinterest, served by the site at `/social-img/`; if a picture can't be drawn or served, the plain poster). X, Facebook and Bluesky show the wide hero art. The store art is converted to a square JPEG by the free image proxy [wsrv.nl](https://wsrv.nl), because Instagram only accepts JPEGs and Bluesky needs images under 1 MB.
+Images: each deal gets its own picture for each network, in that network's feed shape: the game's art filling the whole picture, with the discount, the store's logo (Xbox or PlayStation) and gamedealtrack.com on it. Drawn by `jobs/social-card.js deals` after each store run and served by the site at `/social-img/`:
+
+| Network | Size | Ratio | Art |
+|---|---|---|---|
+| Instagram, Facebook | 1080×1350 | 4:5 | the portrait poster |
+| Pinterest | 1000×1500 | 2:3 | the portrait poster |
+| X | 1600×900 | 16:9 | the wide hero art |
+| Bluesky (link card) | 1200×630 | 1.91:1 | the wide hero art |
+
+When a game lacks the art of the right shape, the other one is shown whole on a blurred copy of itself; if no picture can be drawn or served, the post uses the plain art. The weekly roundup keeps its top-5 pictures (1080×1350 for Instagram, Facebook and Pinterest, 1200×630 for X and Bluesky). Plain store art is converted to JPEG by the free image proxy [wsrv.nl](https://wsrv.nl), because Instagram only accepts JPEGs and Bluesky needs images under 1 MB.
 
 **Post a deal again now**: Actions → **Social resend** → Run workflow, with the deals (`xbox:<product id>` or `ps:<product id>`, the id from the game page's address) and the networks (default `instagram,pinterest`; empty for all). It uses today's price and draws the pictures first.
 
