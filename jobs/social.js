@@ -94,13 +94,16 @@ const cardOf = (plat, week) => {
 };
 // the game's poster (its portrait store cover) at w wide and h high, all of it shown (black bars when it's narrower)
 const poster = (u, w, h) => u ? "https://wsrv.nl/?url=" + encodeURIComponent(u) + "&w=" + w + "&h=" + h + "&fit=contain&cbg=000000&output=jpg&q=85" : "";
-// shape "wide": the hero art (16:9), else the cover; "tall" (Instagram, 4:5) and "poster" (Pinterest, 2:3): the poster
+// the picture for a network's shape: "tall" 4:5 (Instagram, Facebook), "poster" 2:3 (Pinterest), "wide" 16:9 (X), "link"
+// 1.91:1 (Bluesky's link card). A deal's own picture (jobs/social-card.js deals: the art filling it, with the discount, the
+// store's logo and the site) when it has one; else the poster for the tall shapes, the hero art (else the cover) for the wide
 const pic = (p, w, shape) => {
-  const c = p.card && (p.card[shape === "poster" ? "tall" : shape] || p.card.wide || p.card.tall);
+  const tall = shape === "tall" || shape === "poster";
+  const c = p.card && (p.card[tall ? "tall" : "wide"] || p.card.wide || p.card.tall);
   if (c) return c.url;
-  const d = shape !== "wide" && p.pics && p.pics[shape];   // a deal's poster with its price and discount (jobs/social-card.js deals)
+  const d = p.pics && p.pics[shape];
   if (d) return d.url;
-  if (shape !== "wide" && p.poster) return poster(p.poster, w, Math.round(w * (shape === "poster" ? 1.5 : 1.25)));
+  if (tall && p.poster) return poster(p.poster, w, Math.round(w * (shape === "poster" ? 1.5 : 1.25)));
   return p.hero ? wide(p.hero, w) : jpeg(p.image, w);
 };
 const withUtm = (u, src) => u + (u.includes("?") ? "&" : "?") + "utm_source=" + src + "&utm_medium=social";
@@ -230,7 +233,7 @@ const NETWORKS = {
         try {
           // the roundup's picture: from its file when this run has it (data/social/img), else from the site
           const card = p.card && (p.card.wide || p.card.tall), local = card && path.join(DATA, card.file);
-          const img = local && fs.existsSync(local) ? null : await fetch(card ? card.url : pic(p, 1200, "wide"));
+          const img = local && fs.existsSync(local) ? null : await fetch(card ? card.url : pic(p, 1200, "link"));
           const bytes = img ? (img.ok ? Buffer.from(await img.arrayBuffer()) : null) : fs.readFileSync(local);
           if (bytes) {
             const blob = await ok(await fetch(host + "/xrpc/com.atproto.repo.uploadBlob", { method: "POST",
@@ -251,7 +254,7 @@ const NETWORKS = {
     async post(p) {
       const message = [p.head, p.line, "", withUtm(p.url, "facebook"), "", p.tags.map(t => "#" + t).join(" ")].join("\n");
       const body = new URLSearchParams({ access_token: env.FB_PAGE_TOKEN });
-      if (p.card || p.image) { body.set("url", pic(p, 1200, "wide")); body.set("caption", message); }
+      if (p.card || p.image) { body.set("url", pic(p, 1080, "tall")); body.set("caption", message); }
       else { body.set("message", message); body.set("link", withUtm(p.url, "facebook")); }
       const r = await ok(await fetch(GRAPH + "/" + env.FB_PAGE_ID + (p.card || p.image ? "/photos" : "/feed"), { method: "POST", body }), "Facebook");
       return r.post_id || r.id;
@@ -316,7 +319,7 @@ const NETWORKS = {
       const url = withUtm(p.url, "x"), tags = p.tags.slice(0, 2).map(t => "#" + t).join(" ");
       let text = fit([p.head, p.line, tags], 280 - 24) + "\n" + url;
       let id;
-      if (env.BUFFER_API_KEY && env.BUFFER_X_CHANNEL_ID) id = await viaBuffer(env.BUFFER_X_CHANNEL_ID, text, p.card || p.image || p.hero ? pic(p, 1200, "wide") : "", p.title);
+      if (env.BUFFER_API_KEY && env.BUFFER_X_CHANNEL_ID) id = await viaBuffer(env.BUFFER_X_CHANNEL_ID, text, p.card || p.image || p.hero ? pic(p, 1600, "wide") : "", p.title);
       else id = await viaX(text);
       log[day] = (log[day] || 0) + 1;
       Object.keys(log).forEach(d => { if (d < new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10)) delete log[d]; });
