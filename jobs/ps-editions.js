@@ -22,6 +22,7 @@
 //        concept id when it's another(, 1: US, looked up with what each edition includes)]}
 //   a:  {US add-on product id: [checked ms, product id there or null, price, regular price, sale end ms]}
 //   pc: (US) {product id: concept id} of the deals whose game the other files don't say
+//   af: (US) {add-on product id: [checked ms, [what it includes: the store's list]]} for the add-on packs and bundles on sale (an expansion pass)
 //   names: {name key: concept id} of the store's games (its full game list, read by the daily run), for the games it
 //        sells under another concept id
 // Each run then rewrites the region's prices (psResolveRegion_): the store's own lists give the current sale prices
@@ -35,7 +36,7 @@ function load(code) {
   let d = null;
   try { d = JSON.parse(fs.readFileSync(path.join(dir(), code + ".json"), "utf8")); } catch (e) {}
   d = d || {};
-  d.c = d.c || {}; d.a = d.a || {}; d.pc = d.pc || {}; d.names = d.names || {};
+  d.c = d.c || {}; d.a = d.a || {}; d.pc = d.pc || {}; d.names = d.names || {}; d.af = d.af || {};
   return d;
 }
 function save(code, d) {
@@ -226,6 +227,27 @@ function psEditionLookups(code, opts) {
     const live = new Set(side.deals.map(g => g.pid));
     Object.keys(d.pc).forEach(id => { if (!live.has(id)) delete d.pc[id]; });
   }
+  // US: what each add-on pack or bundle on sale includes (the store lists it on the product: edition.features), a part at a time
+  if (code === "US") {
+    const packs = side.deals.filter(g => /ADD_ON/.test(String(g.kind || ""))).map(g => g.pid);
+    const due = Array.from(new Set(packs)).filter(id => !d.af[id] || now - d.af[id][0] > 20 * 864e5).slice(0, 200);
+    for (let i = 0; i < due.length && Date.now() < until; i += 40) {
+      const chunk = due.slice(i, i + 40);
+      let res = [];
+      try { res = UrlFetchApp.fetchAll(chunk.map(id => psRequest_("metGetProductById", { productId: id }, localeOf("US")))); }
+      catch (e) { console.log("PlayStation add-on contents lookup failed: " + e.message); break; }
+      chunk.forEach((id, k) => {
+        let j = null;
+        try { if (res[k] && res[k].getResponseCode() === 200) j = JSON.parse(res[k].getContentText()); } catch (e) {}
+        const p = j && j.data && j.data.productRetrieve;
+        if (!p) return;   // no answer: asked again next run
+        const f = p.edition && Array.isArray(p.edition.features) ? p.edition.features.map(x => String(x || "").trim()).filter(Boolean).slice(0, 30) : [];
+        d.af[id] = [now, f];
+      });
+    }
+    const live = new Set(packs);
+    Object.keys(d.af).forEach(id => { if (!live.has(id)) delete d.af[id]; });
+  }
   // add-ons on sale in the US: the same add-on here, its id made from the game's id here
   let addOns = 0;
   if (code !== "US") {
@@ -275,6 +297,7 @@ function psEditionLookups(code, opts) {
 function saveFeatures_(d) {
   const f = {};
   Object.keys(d.c).forEach(con => { ((d.c[con] && d.c[con][1]) || []).forEach(e => { if (Array.isArray(e[7]) && e[7].length > 1) f[e[0]] = e[7]; }); });
+  Object.keys(d.af || {}).forEach(id => { if (d.af[id][1].length > 1) f[id] = d.af[id][1]; });   // add-on packs (an expansion pass)
   saveJsonToDrive_({ updatedAt: new Date().toISOString(), f }, "ps_edfeatures.json", "PS_EDFEAT_FILE_ID");
   console.log("PlayStation editions with what they include: " + Object.keys(f).length);
 }
