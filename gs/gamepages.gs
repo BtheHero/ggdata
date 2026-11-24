@@ -71,6 +71,14 @@ function attachAddOns_(games, extra, ps) {
     base[n] = fam[n].slice().sort((a, b) => stdRank(a, n) - stdRank(b, n) || winRank(a) - winRank(b) || rc(b) - rc(a) || (games[a].m || 1e9) - (games[b].m || 1e9))[0];
     byName[n] = base[n];
   });
+  // An add-on's link to its game (g.ao): [the game's page id, its title, how many store ratings the game has, its release date].
+  // The ratings are the most of any of its editions (they can be on any one of them). The site reads the last two to
+  // decide which add-on pages search engines are offered (lib/gamepage.js indexable in gtracker): an add-on of a game with
+  // few ratings isn't, unless it is new (its game released in the last 6 months). Pages older than these fields have only two.
+  const aoOf = b => {
+    const eds = famOf[b] && fam[famOf[b]] ? fam[famOf[b]] : [b];
+    return [b, games[b].t, Math.max.apply(null, eds.map(rc)), games[b].r || null];
+  };
   // the game (its name) an add-on belongs to
   const gameOf = (id, title) => {
     const r = rel[String(id).toUpperCase()], p = r && r[0] ? page(r[0]) : null;
@@ -105,7 +113,7 @@ function attachAddOns_(games, extra, ps) {
     if (!g.kd) return;
     const b = place(id, g.t, g.kd, [id, g.t, art(g.q || g.i), g.pr || 0, g.m || 0, g.kd, 1, 0]);
     if (!b) return;
-    g.ao = [b, games[b].t];
+    g.ao = aoOf(b);
     matched++;
   });
   (extra || []).forEach(x => {
@@ -117,7 +125,7 @@ function attachAddOns_(games, extra, ps) {
     if (!games[x.id]) {
       const gm = games[b];
       games[x.id] = { t: x.t, p: gm.p || "", i: x.a || "", q: x.a || undefined, pr: x.m || 0, m: x.m || 0, c: gm.c || "USD", s: [], ti: [],
-                      kd: x.kd || "Add-on", ao: [b, gm.t], u: ps ? "https://store.playstation.com/en-us/product/" + x.id : undefined };
+                      kd: x.kd || "Add-on", ao: aoOf(b), u: ps ? "https://store.playstation.com/en-us/product/" + x.id : undefined };
     }
   });
   // the editions (bundles) that include an add-on, by the store's own add-on relations: its page says "Included in"
