@@ -19,6 +19,7 @@ const EVENTS = [
   { key: "spring", name: "Spring Sale", on: ["03-05", "04-30"], ends: ["03-15", "04-30"] },
   { key: "daysofplay", name: "Days of Play", only: "ps", on: ["05-20", "06-25"], ends: ["05-30", "06-25"] },
   { key: "summer", name: "Summer Sale", on: ["06-15", "08-10"], ends: ["06-25", "08-10"] },
+  { key: "autumn", name: "Autumn Sale", on: ["09-10", "10-12"], ends: ["09-15", "10-12"] },
   { key: "halloween", name: "Halloween Sale", on: ["10-08", "11-08"], ends: ["10-20", "11-08"] },
   { key: "blackfriday", name: "Black Friday Sale", on: ["11-01", "12-08"], ends: ["11-15", "12-08"] },
   { key: "holiday", name: "Holiday Sale", on: ["12-08", "01-20"], ends: ["12-20", "01-20"] }
