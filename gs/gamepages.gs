@@ -633,11 +633,8 @@ function gamePagesFor_(pre) {
       const k = nk(g.t);
       if (k && (!byName[k] || ((g.ra && g.ra[1]) || 0) > ((games[byName[k]].ra && games[byName[k]].ra[1]) || 0))) byName[k] = id;
     });
-    Object.keys(games).forEach(id => {
-      const g = games[id];
-      if (g.a || !g.ed || !g.ed.length) return;
-      // the game itself: this page, or (an edition page) the game's page it was made from
-      const gameId = /^\d+$/.test(id) ? id : (g.cn && games[g.cn] && !games[g.cn].a ? g.cn : id), game = games[gameId];
+    // how the items an edition or add-on pack names are told apart: the game itself, one of its add-ons, another game, or a name only
+    const itemOfFor = (gameId, game) => {
       const gk = nk(game.t), gkey = psGameKey_(game.t), ads = (game.ad || []).filter(r => r && r[0] && r[1]).map(r => [r, nk(r[1])]);
       const gameArt = String(game.q || game.i || "").replace("https://image.api.playstation.com/vulcan/ap/rnd/", "~");
       const itemOf = name => {
@@ -652,6 +649,14 @@ function gamePagesFor_(pre) {
         // one the store only names ("Specialist Pack"): no page of its own, shown with the game's art
         return ["", String(name), gameArt, 0, ""];
       };
+      return itemOf;
+    };
+    Object.keys(games).forEach(id => {
+      const g = games[id];
+      if (g.a || !g.ed || !g.ed.length) return;
+      // the game itself: this page, or (an edition page) the game's page it was made from
+      const gameId = /^\d+$/.test(id) ? id : (g.cn && games[g.cn] && !games[g.cn].a ? g.cn : id), game = games[gameId];
+      const itemOf = itemOfFor(gameId, game);
       const edi = {};
       g.ed.concat([[id]]).forEach(r => {
         const pid = r[0], f = feat[pid] || (games[pid] && games[pid].pi && feat[games[pid].pi]);
@@ -669,6 +674,16 @@ function gamePagesFor_(pre) {
       });
       if (Object.keys(edi).length) g.edi = Object.assign(g.edi || {}, edi);
     });
+    // add-on packs and bundles (an expansion pass): what each includes, on its own page and as "Included in" on the add-ons it holds
+    Object.keys(games).forEach(id => {
+      const g = games[id], f = feat[id], game = g.a && games[g.a];
+      if (!g.a || !f || f.length < 2 || g.inc || !game || game.a) return;
+      const items = incTidy_(f.map(itemOfFor(g.a, game)).filter(Boolean).filter(x => x[0] !== id), id, g.t);
+      if (items.length < 2) return;
+      g.inc = items.slice(0, 40);
+      n++;
+      items.forEach(x => { if (x[0] && x[0] !== id && x[0] !== g.a && games[x[0]]) (inb[x[0]] = inb[x[0]] || []).push(id); });
+    });
     Object.keys(inb).forEach(id => { games[id].inb = Array.from(new Set((games[id].inb || []).concat(inb[id]))).slice(0, 12); });
     console.log("PlayStation editions with what they include: " + n + "; add-ons included in an edition: " + Object.keys(inb).length);
   }
@@ -683,7 +698,8 @@ function gamePagesFor_(pre) {
     let n = 0;
     Object.keys(bb).forEach(bid => {
       const g = games[bid], items = bb[bid][0] || [];
-      if (!g || g.a || items.length < 2) return;
+      // (an add-on that holds other add-ons, an expansion pass, lists them on its page too)
+      if (!g || items.length < 2) return;
       // (an "… Edition Upgrade" in an edition's contents is how the store builds that edition, not something it adds)
       const isUp = x => /\bupgrade\b/i.test((pg(x) && games[pg(x)].t) || (bn[x] || [])[0] || "");
       g.inc = incTidy_(items.filter(x => !isUp(x)).map(x => {

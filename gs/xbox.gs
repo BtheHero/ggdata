@@ -1394,6 +1394,13 @@ function fillScores() {
       if (wrong[k] || (s && s[1] && mcNums_(s[1]) !== mcNums_(cleanTitle_(title)))) { wrong[k] = 1; delete store[k]; map[id] = null; return; }   // null: replaces the saved one
       if (s && s[0] > 0) map[id] = [s[0], s[1]];
     });
+    // The rest of this store's full list: a game with no score of its own takes the same game's Metascore from the other store
+    // (the scores are kept by title, whichever store the lookup was for), so an Xbox game without one gets PlayStation's and the other way round
+    ((psReadJson_(pre + "CATALOG_FILE_ID", { games: [] }) || {}).games || []).forEach(r => {
+      const k = scoreKey_(r[1]), s = store[k];
+      if (!k || !s || !(s[0] > 0) || wrong[k] || (s[1] && mcNums_(s[1]) !== mcNums_(cleanTitle_(r[1])))) return;
+      [r[0], r[13]].forEach(id => { if (id && !(id in map)) map[id] = [s[0], s[1]]; });
+    });
     saveJsonToDrive_(map, pre ? "ps_scores.json" : "scores.json", pre + "SCORES_FILE_ID");
     console.log((pre ? "PlayStation" : "Xbox") + " games with a Metascore: " + Object.keys(map).length);
   });
