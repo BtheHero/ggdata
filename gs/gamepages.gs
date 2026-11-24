@@ -683,7 +683,8 @@ function gamePagesFor_(pre) {
     let n = 0;
     Object.keys(bb).forEach(bid => {
       const g = games[bid], items = bb[bid][0] || [];
-      if (!g || g.a || items.length < 2) return;
+      // (an add-on that holds other add-ons, an expansion pass, lists them on its page too)
+      if (!g || items.length < 2) return;
       // (an "… Edition Upgrade" in an edition's contents is how the store builds that edition, not something it adds)
       const isUp = x => /\bupgrade\b/i.test((pg(x) && games[pg(x)].t) || (bn[x] || [])[0] || "");
       g.inc = incTidy_(items.filter(x => !isUp(x)).map(x => {

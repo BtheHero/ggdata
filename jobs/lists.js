@@ -2,7 +2,7 @@
 //
 //   data/<xbox|ps>_lists.json        {updatedAt, plat, year, recent, upcoming, free, meta, publishers, acclaimed, psplus}
 //     recent      games released in the last RECENT_DAYS days, newest first
-//     upcoming    every game with a release date still to come, soonest first (the release schedule)
+//     upcoming    every game with a release date still to come, soonest first, one per game as its standard edition (the release schedule)
 //     free        popular free-to-play games, most store ratings first
 //     meta        the best-reviewed games (Metascore), best first, with genres (the Top Metacritic page filters them)
 //     publishers  every publisher with its number of games (editions and add-ons of a game count once), most popular
@@ -111,8 +111,15 @@ mains.forEach(id => { const k = editionKey(games[id].t); if (k && (!byTitle[k] |
 // ---------- recent and upcoming releases ----------
 const recent = one(ids.filter(id => isGame(games[id]) && relOf(games[id]) <= NOW && relOf(games[id]) > NOW - RECENT_DAYS * DAY)
   .sort((a, b) => relOf(games[b]) - relOf(games[a]) || rc(b) - rc(a))).map(id => clean(entry(id, games[id])));
-const upcoming = one(ids.filter(id => isGame(games[id]) && relOf(games[id]) > NOW && relOf(games[id]) < NOW + 3 * 365 * DAY)
-  .sort((a, b) => relOf(games[a]) - relOf(games[b]) || rc(b) - rc(a))).slice(0, UPCOMING_N).map(id => clean(entry(id, games[id])));
+// The schedule lists each game once, as its standard edition (not a deluxe or ultimate one that happens to come first)
+const comingBy = Object.create(null);
+ids.forEach(id => {
+  const g = games[id], k = gid(id);
+  if (!k || !isGame(g) || !(relOf(g) > NOW && relOf(g) < NOW + 3 * 365 * DAY)) return;
+  (comingBy[k] = comingBy[k] || []).push(id);
+});
+const upcoming = Object.keys(comingBy).map(k => comingBy[k].slice().sort(stdCmp)[0])
+  .sort((a, b) => relOf(games[a]) - relOf(games[b]) || rc(b) - rc(a)).slice(0, UPCOMING_N).map(id => clean(entry(id, games[id])));
 
 // ---------- free-to-play games ----------
 // (a store offer priced at 0: not a game that's only in a subscription, nor one without a price yet)
