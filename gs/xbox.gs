@@ -528,6 +528,7 @@ function enrichGames_(games, startTime) {
           g.released = relDate_(p);
           let ends = Infinity;
           (p.DisplaySkuAvailabilities || []).forEach(sku => (sku.Availabilities || []).forEach(a => {
+            if (a.RemediationRequired) return;   // (subscriber-only offers, Game Pass and the like)
             const t = Date.parse(a.Conditions && a.Conditions.EndDate);
             const pr = a.OrderManagementData && a.OrderManagementData.Price;
             if (t > Date.now() && t < Date.UTC(3000, 0, 1) && pr && pr.ListPrice < pr.MSRP) ends = Math.min(ends, t);

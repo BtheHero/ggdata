@@ -65,7 +65,8 @@ function dcPrice(p) {
     const sp = (sa.Sku && sa.Sku.Properties) || {};
     if (sp.IsTrial) return;
     (sa.Availabilities || []).forEach(a => {
-      if (!(a.Actions || []).includes("Purchase")) return;
+      // (RemediationRequired: the $0 offers for subscribers, Game Pass and the like)
+      if (!(a.Actions || []).includes("Purchase") || a.RemediationRequired) return;
       const c = a.Conditions || {}, st = Date.parse(c.StartDate), en = Date.parse(c.EndDate);
       if (st > now || en <= now) return;
       const pr = a.OrderManagementData && a.OrderManagementData.Price;
