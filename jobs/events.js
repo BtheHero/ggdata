@@ -67,7 +67,7 @@ for (const e of EVENTS) {
       keys.add(k);
       games.push({ id: g.productId, key: g.key || undefined, title: g.title, publisher: g.publisher || "", image: g.image || "", sq: g.sq || null,
         price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD", low: !!g.atLow, ds: g.dealScore || null,
-        ends: g.saleEnds || null, pc: !!g.pc, genres: (g.genres || []).slice(0, 3), subs: g.subs || [], tiers: g.tiers || [], release: null, date: null });
+        ends: g.saleEnds || null, pc: !!g.pc, genres: (g.genres || []).slice(0, 3), subs: g.subs || [], tiers: g.tiers || [], release: null, date: null, pg: g.pg || undefined });
     });
   const top = Math.max(...inSale.map(g => Math.round((1 - g.price / g.msrp) * 100)));   // "up to X% off"
   // "N deals": games only, not add-ons

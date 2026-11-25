@@ -418,6 +418,132 @@ function psOtherGame_(g, title) {
     /\b(collection|bundle|trilogy|double pack|pack|series|anthology)\b|\s[+&]\s/i.test(cleanTitle_(g.title));
   return bundle && !psSameGame_(g.title, title);
 }
+// The deals and the home page's games link to the game's page by the row's id and title, and the site answers an address
+// that isn't a page's own (a PlayStation edition's product id, a name spelled another way) with a redirect. Search engines
+// count each of those as a page that redirects, and crawl it as well as the page. So each row whose page has another
+// address gets pg: [the page's id, its name], and the site links there (lib/ssr.js and site.js gamePageUrl).
+// Mirrors the site's redirects (functions/game/[[path]].js): an edition's {a: id} (one step), then the name.
+function linkPages_(games, pre, salesFile) {
+  const ps = pre === "PS_";
+  const slug = t => String(t || "game").toLowerCase().normalize("NFKD").replace(/[™®©]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "game";
+  const pageOf = id => {
+    let k = String(id), g = games[k];
+    if (!g) { k = k.toUpperCase(); g = games[k]; }
+    if (g && g.a) { k = String(g.a); g = games[k]; }
+    return g && !g.a && g.t ? [k, g.t] : null;
+  };
+  let n = 0;
+  const mark = e => {
+    if (!e || typeof e !== "object") return;
+    const id = e.productId || e.id;
+    delete e.pg;
+    const p = id && pageOf(id);
+    if (p && (p[0] !== String(id) || slug(p[1]) !== slug(e.title))) { e.pg = p; n++; }
+  };
+  (salesFile.games || []).forEach(mark);
+  if ((salesFile.games || []).length) saveJsonToDrive_(salesFile, ps ? "ps_sales.json" : JSON_FILE_NAME, pre + "JSON_FILE_ID");
+  const home = psReadJson_(pre + "HOME_FILE_ID", null);
+  if (home && home.sections) {
+    Object.keys(home.sections).forEach(k => {
+      const s = home.sections[k];
+      if (Array.isArray(s)) s.forEach(mark);
+      else if (s && Array.isArray(s.games)) s.games.forEach(mark);
+    });
+    saveJsonToDrive_(home, ps ? "ps_home.json" : "xbox_home.json", pre + "HOME_FILE_ID");
+  }
+  console.log((ps ? "PlayStation" : "Xbox") + " deal and home page links sent straight to the game's page: " + n);
+}
+
+// Pages kept after they leave the data. A page made only because its game was on sale (a PlayStation bundle or edition sold
+// on its own page, an add-on on sale) used to go when the sale ended, and its address answered "not found" after search
+// engines had been sent there. Now every page that isn't in the full game list is remembered in <plat>_kept.json
+//   {p: {id: {g: the page's lasting fields (or {a: id} for an address that goes to another page), seen: ms last made
+//    from the data, chk: ms last checked in the store, pr, m: the store's price then, gone: ms it stopped selling it}}}
+// and made again from there for as long as the store sells it, at the store's price, checked every KEPT_CHECK_DAYS
+// (checkKept_). Once the store doesn't sell it, its address goes to its game's page ({a: id}) or, with none, answers
+// "gone" ({x: 1}: 410 on the site).
+const KEPT_FIELDS = ["t", "p", "i", "q", "m", "c", "s", "ti", "pc", "u", "r", "kd", "ao", "cn", "xp", "lo", "pi", "ed", "np"];
+const KEPT_CHECK_DAYS = 21, KEPT_CHECK_MAX = 600;
+function keepPages_(games, pre, cat, kept, placed) {
+  const ps = pre === "PS_", now = Date.now(), inList = new Set(cat.map(r => String(r[0])));
+  Object.keys(games).forEach(id => {
+    const g = games[id];
+    if (inList.has(id)) { delete kept[id]; return; }   // the full list keeps it
+    if (placed.has(id) || g.x) return;
+    const b = {};
+    if (g.a) b.a = g.a;
+    else KEPT_FIELDS.forEach(f => { if (g[f] !== undefined) b[f] = g[f]; });
+    kept[id] = { g: b, seen: now, chk: kept[id] && !kept[id].gone ? kept[id].chk : undefined };
+  });
+  saveJsonToDrive_({ updatedAt: new Date().toISOString(), p: kept }, (ps ? "ps_" : "xbox_") + "kept.json", pre + "KEPT_FILE_ID");
+  console.log((ps ? "PlayStation" : "Xbox") + " pages remembered: " + Object.keys(kept).length);
+}
+// Kept pages in the store, the longest unchecked first: their price, or that the store doesn't sell them any more
+// (PlayStation: "Product not available", Xbox: not in the US catalog; or no price to buy it at). A request that fails
+// says nothing: checked again next run.
+function checkKept_(kept, ps, ids) {
+  const now = Date.now();
+  const due = ids.filter(id => { const k = kept[id]; return k && k.g && !k.g.a && !k.gone && now - (k.chk || 0) > KEPT_CHECK_DAYS * 864e5; })
+    .sort((a, b) => (kept[a].chk || 0) - (kept[b].chk || 0)).slice(0, KEPT_CHECK_MAX);
+  if (!due.length) return;
+  let priced = 0, gone = 0;
+  // (a game with no price yet, np: an upcoming game from the lists, isn't sold yet either; it goes only when the store
+  // doesn't have it at all)
+  const set = (id, price, missing) => {
+    const k = kept[id];
+    k.chk = now;
+    if (price) { k.pr = price[0]; k.m = price[1]; priced++; }
+    else if (missing || !k.g.np) { k.gone = now; gone++; }
+  };
+  const step = ps ? 40 : 20;
+  for (let i = 0; i < due.length; i += step) {
+    const chunk = due.slice(i, i + step);
+    if (ps) {
+      let res = [];
+      try { res = UrlFetchApp.fetchAll(chunk.map(id => psRequest_("productRetrieveForCtasWithPrice", { productId: id }))); }
+      catch (e) { console.log("Kept pages check failed: " + e.message); break; }
+      chunk.forEach((id, n) => {
+        let j = null;
+        try { j = res[n] && JSON.parse(res[n].getContentText()); } catch (e) {}
+        const p = j && j.data && j.data.productRetrieve;
+        const missing = !p && !!j && (j.errors || []).some(e => /data_not_found/.test(String(e.extensions && e.extensions.error && e.extensions.error.reason)));
+        if (p) { const o = psOffer_(p); set(id, o ? [o.price, o.base] : null); }
+        else if (missing) set(id, null, true);
+      });
+      Utilities.sleep(300);
+    } else {
+      let r = null, d = null;
+      try {
+        r = UrlFetchApp.fetch("https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=" + chunk.join(",") + "&market=US&languages=en-US&MS-CV=DGU1mcuYo0WMMp%2BF.1", { muteHttpExceptions: true });
+        if (r.getResponseCode() === 200) d = JSON.parse(r.getContentText());
+      } catch (e) {}
+      if (!d) continue;
+      const found = {};
+      (d.Products || []).forEach(p => { found[String(p.ProductId || "").toUpperCase()] = xKeptPrice_(p); });
+      chunk.forEach(id => { const k = String(id).toUpperCase(); set(id, found[k] || null, !(k in found)); });
+    }
+  }
+  console.log((ps ? "PlayStation" : "Xbox") + " kept pages checked in the store: " + priced + " still sold, " + gone + " not any more");
+}
+// An Xbox product's US price as [price, regular price], from its first purchasable availability now; null: none
+function xKeptPrice_(p) {
+  const now = Date.now();
+  let best = null;
+  (p.DisplaySkuAvailabilities || []).forEach(sa => {
+    if (sa.Sku && sa.Sku.Properties && sa.Sku.Properties.IsTrial) return;
+    (sa.Availabilities || []).forEach(a => {
+      // (RemediationRequired: the $0 offers for subscribers, Game Pass and the like)
+      if (!(a.Actions || []).includes("Purchase") || a.RemediationRequired) return;
+      const c = a.Conditions || {}, st = Date.parse(c.StartDate), en = Date.parse(c.EndDate);
+      if (st > now || en <= now) return;
+      const pr = a.OrderManagementData && a.OrderManagementData.Price;
+      if (!pr || pr.CurrencyCode !== "USD" || !(Number(pr.ListPrice) >= 0)) return;
+      if (!best || pr.ListPrice < best[0]) best = [Number(pr.ListPrice), Number(pr.MSRP) || Number(pr.ListPrice)];
+    });
+  });
+  return best;
+}
+
 function gamePagesFor_(pre) {
   const ps = pre === "PS_";
   const cat = psReadJson_(pre + "CATALOG_FILE_ID", { games: [] }).games || [];
@@ -536,6 +662,27 @@ function gamePagesFor_(pre) {
     if (!e.ra) e.ra = rating(id);
     if (!e.h && hist[id]) e.h = hist[id];
   });
+  // pages that left the data: made again (keptPages_ below)
+  const kept = (psReadJson_(pre + "KEPT_FILE_ID", { p: {} }) || {}).p || {}, placed = new Set();
+  try {
+    checkKept_(kept, ps, Object.keys(kept).filter(id => !games[id]));
+    Object.keys(kept).forEach(id => {
+      const k = kept[id], b = k && k.g;
+      if (games[id] || !b) return;
+      if (b.a) { if (games[b.a] && !games[b.a].a) { games[id] = { a: b.a }; placed.add(id); } return; }
+      if (k.gone) {   // the store doesn't sell it any more: to its game's page, else "gone"
+        const to = [b.ao && b.ao[0], b.cn].find(x => x && String(x) !== id && games[x] && !games[x].a);
+        games[id] = to ? { a: String(to) } : { x: 1 };
+        placed.add(id);
+        return;
+      }
+      const m = k.m != null ? k.m : Number(b.m) || 0;
+      games[id] = Object.assign({}, b, { pr: k.pr != null ? k.pr : m, m: m, ra: rating(id), mc: score(id), h: hist[id] || undefined,
+        g: genresOf(id), d: descOf(id), r: b.r || relOf(id) });
+      placed.add(id);
+    });
+    console.log((ps ? "PlayStation" : "Xbox") + " pages kept after leaving the data: " + placed.size);
+  } catch (e) { console.log("Kept pages failed: " + e.message); }
   // ids instead of names: the publisher's id on Xbox (pb, xPublisherIds_), the game's id (concept) on PlayStation (cn), so a
   // game's editions and a publisher's games are told apart by id (the lists job: jobs/lists.js)
   if (ps) {
@@ -752,6 +899,8 @@ function gamePagesFor_(pre) {
     if (g.ed) g.ed.forEach(r => { if (r[1]) r[1] = psName_(r[1]); });
     if (g.ao && g.ao[1]) g.ao[1] = psName_(g.ao[1]);
   });
+  try { linkPages_(games, pre, salesFile); } catch (e) { console.log("Page links failed: " + e.message); }
+  try { keepPages_(games, pre, cat, kept, placed); } catch (e) { console.log("Kept pages failed: " + e.message); }
   const shards = [];
   for (let n = 0; n < GAME_SHARDS; n++) shards.push({});
   Object.keys(games).forEach(id => { shards[shardOf_(id)][id] = games[id]; });

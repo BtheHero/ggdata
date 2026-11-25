@@ -43,7 +43,7 @@ const today = sales.filter(g => {
   id: g.productId, key: g.key || undefined, title: g.title, publisher: g.publisher || "", image: g.image || "", sq: g.sq || null,
   price: Number(g.price), msrp: Number(g.msrp), currency: g.currency || "USD", ds: g.dealScore, low: !!g.atLow,
   ends: g.saleEnds || null, mc: mcOf(g.productId), genres: (g.genres || []).slice(0, 3), seen: new Date().toISOString().slice(0, 10),
-  subs: g.subs || [], tiers: g.tiers || [], pc: !!g.pc
+  subs: g.subs || [], tiers: g.tiers || [], pc: !!g.pc, pg: g.pg || undefined   // pg: the game's page, when it has another address (gs/gamepages.gs linkPages_)
 }));
 if (!today.length) { console.log("Weekly: no scored deals in " + plat + "_sales.json yet, nothing written"); process.exit(0); }
 
