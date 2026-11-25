@@ -1,0 +1,50 @@
+# Every game page in every language, made ahead of time with the site's own code (gtracker tools/prerender.mjs) and kept
+# in the bucket's pages/ folder, where the site serves them from (gtracker lib/prerendered.js). Translating a page on
+# Cloudflare costs more CPU than the free plan gives a request, so many translated pages failed there.
+# Runs after each job that changes what a game page shows (the game data, regional prices, media, descriptions).
+# Secret: SITE_REPO_TOKEN, a fine-grained GitHub token with read access to BtheHero/gtracker's contents (a private repo).
+name: Game pages
+on:
+  workflow_run:
+    workflows: [Xbox, PlayStation, Media]
+    types: [completed]
+  workflow_dispatch:
+concurrency:
+  group: prerender   # one at a time; a run asked for meanwhile waits and then uses the newest data
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      RUN: ${{ github.run_id }}${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: The site's code
+        uses: actions/checkout@v5
+        with:
+          repository: BtheHero/gtracker
+          ref: main
+          path: site
+          token: ${{ secrets.SITE_REPO_TOKEN }}
+          sparse-checkout: |
+            lib
+            functions
+            i18n
+            tools
+          sparse-checkout-cone-mode: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Download the game data
+        run: aws s3 sync s3://ggdata/data data --endpoint-url "$R2" --only-show-errors --exclude "*" --include "xbox_games_*" --include "ps_games_*" --include "compare/*" --include "media/*" --include "desc/*"
+      - name: Make the pages
+        run: node site/tools/prerender.mjs data out "$RUN"
+      - name: Upload them
+        run: node tools/upload-pages.js out "$RUN"
