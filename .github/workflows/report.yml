@@ -55,11 +55,14 @@ jobs:
           CF=https://api.cloudflare.com/client/v4
           case "$CLOUDFLARE_ACCOUNT_ID" in *[!0-9a-f]*|"") echo "::error::CLOUDFLARE_ACCOUNT_ID should be 32 characters, 0-9 and a-f"; exit 1;; esac
           # a user's token (My Profile → API Tokens) or the account's own (Manage Account → Account API Tokens)
-          if ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/user/tokens/verify" | grep -q '"status":"active"' &&
-             ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify" | grep -q '"status":"active"'; then
+          if ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/user/tokens/verify" | grep -Eq '"status": *"active"' &&
+             ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify" | grep -Eq '"status": *"active"'; then
             echo "::error::CLOUDFLARE_API_TOKEN isn't a valid, active API token for this account (an API token, not the Global API Key)"; exit 1
           fi
-          if ! curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects" | grep -q '"success":true'; then
+          PAGES="$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects")"
+          if ! printf '%s' "$PAGES" | grep -Eq '"success": *true'; then
+            # Cloudflare's own error codes and messages (they hold nothing secret)
+            echo "Cloudflare answered: $(printf '%s' "$PAGES" | grep -o '"errors": *\[[^]]*\]' | head -c 500)"
             # which accounts the token reaches (only the first 4 characters of each id: this log is public)
             IDS="$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts?per_page=50" | grep -o '"id":"[0-9a-f]\{32\}"' | cut -d'"' -f4)"
             N="$(printf '%s\n' "$IDS" | grep -c . || true)"
