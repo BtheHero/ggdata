@@ -27,6 +27,9 @@ Scheduled jobs that collect game store data (prices, sales, add-ons) and publish
   result and failed steps, what its log says it did, the files it uploaded, and each social post network by network.
   `report.yml` publishes it every 6 hours to Cloudflare Pages (`report-site/`, project `ggdata-report`), behind a password.
   Secrets: `CLOUDFLARE_API_TOKEN` (Account → Cloudflare Pages → Edit), `CLOUDFLARE_ACCOUNT_ID`, `REPORT_PASSWORD`
+- `.github/workflows/prerender.yml` (Game pages): after each Xbox, PlayStation and Media run, makes every game page in every language
+  with the site's own code (gtracker `tools/prerender.mjs`) and uploads them to the bucket's `pages/` folder (`tools/upload-pages.js`),
+  where the site serves them from. Secret: `SITE_REPO_TOKEN` (fine-grained token, read access to the gtracker repository's contents)
 - `seed.js`: copies files the jobs build on from the site's data service
 - `.github/workflows/`: the schedules
 
