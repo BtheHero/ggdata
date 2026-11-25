@@ -10,7 +10,8 @@
 const path = require("path"), { execFileSync } = require("child_process");
 const [outDir, run] = process.argv.slice(2);
 if (!outDir || !run) { console.log("usage: node tools/upload-pages.js <out dir> <run id>"); process.exit(1); }
-const aws = (args, opts) => execFileSync("aws", args.concat(["--endpoint-url", process.env.R2, "--only-show-errors"]), opts || { stdio: "inherit" });
+// (aws s3 ls refuses --only-show-errors)
+const aws = (args, opts) => execFileSync("aws", args.concat(["--endpoint-url", process.env.R2], args[1] === "ls" ? [] : ["--only-show-errors"]), opts || { stdio: "inherit" });
 const SRC = path.join(path.resolve(outDir), "pages"), BUCKET = "s3://ggdata/pages";
 
 aws(["s3", "sync", SRC, BUCKET, "--exclude", "*.json", "--content-type", "application/octet-stream"]);
