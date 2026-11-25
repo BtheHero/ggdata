@@ -64,8 +64,9 @@ jobs:
             IDS="$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CF/accounts?per_page=50" | grep -o '"id":"[0-9a-f]\{32\}"' | cut -d'"' -f4)"
             N="$(printf '%s\n' "$IDS" | grep -c . || true)"
             SHORT="$(printf '%s\n' "$IDS" | grep . | cut -c1-4 | sed 's/$/…/' | paste -sd, -)"
-            if printf '%s\n' "$IDS" | grep -qx "$CLOUDFLARE_ACCOUNT_ID"; then
-              echo "::error::The token reaches the account in CLOUDFLARE_ACCOUNT_ID but has no Cloudflare Pages access there: give it Account → Cloudflare Pages → Edit for that account"
+            # an account's own token can't list accounts (0 here), so an empty list doesn't mean a wrong account id
+            if [ "$N" = 0 ] || printf '%s\n' "$IDS" | grep -qx "$CLOUDFLARE_ACCOUNT_ID"; then
+              echo "::error::The token has no Cloudflare Pages access on the account in CLOUDFLARE_ACCOUNT_ID: give it Account → Cloudflare Pages → Edit for that account (an R2-only token, like the data jobs' one, isn't enough)"
             else
               echo "::error::CLOUDFLARE_ACCOUNT_ID (starts ${CLOUDFLARE_ACCOUNT_ID:0:4}…, ${#CLOUDFLARE_ACCOUNT_ID} characters) isn't an account this token reaches. The token reaches $N account(s)${SHORT:+: $SHORT}. Use one of those ids, or make the token for that account."
             fi
