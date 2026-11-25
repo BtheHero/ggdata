@@ -513,7 +513,7 @@ function gamePagesFor_(pre) {
     const id = String(e.id);
     if (e.lid && !games[e.lid] && games[id] && !games[id].a) { games[e.lid] = { a: id }; linked++; }   // the list's own id: here
     if (!e.title || !e.image || games[id]) return;
-    const same = byTitle[editionKey_(e.title)];
+    const same = retailOf_(byTitle, e.title);   // (the same edition first)
     if (same && same !== id && games[same] && !games[same].a) { games[id] = { a: same }; linked++; return; }
     const priced = Number(e.price) > 0 || Number(e.msrp) > 0;
     games[id] = {

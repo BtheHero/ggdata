@@ -103,7 +103,12 @@ Object.keys(byGame).forEach(k => {
   const out = byGame[k].filter(id => relOf(games[id]) && relOf(games[id]) <= NOW);
   standard[k] = (out.length ? out : byGame[k]).slice().sort(stdCmp)[0];
 });
-const one = list => { const seen = Object.create(null); return list.filter(id => { const k = gid(id); if (seen[k]) return false; seen[k] = 1; return true; }); };
+// one per game, at its first edition's place, as its standard edition (stdCmp; the store ranks no edition reliably first)
+const one = list => {
+  const at = Object.create(null), order = [];
+  list.forEach(id => { const k = gid(id); if (!at[k]) { at[k] = []; order.push(k); } at[k].push(id); });
+  return order.map(k => at[k].length > 1 ? at[k].slice().sort(stdCmp)[0] : at[k][0]);
+};
 const mains = Object.keys(main).map(k => main[k]);
 // a game's name (without its edition) -> its main edition: matching names from outside (IGN, the PlayStation Blog)
 const byTitle = Object.create(null);

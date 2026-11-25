@@ -853,12 +853,14 @@ function buildHome_(catalog, dated, gamePass, sales) {
   const retail = retailEditions_(catalog);
   const SC = psReadJson_("SCORES_FILE_ID", {});   // Metascores, for the home page's "best reviewed" picks
   const entry = id0 => {
-    const i = info[id0] || {}, alt = !row[id0] && (i.title || "") ? retail[editionKey_(i.title)] : null;
+    const i = info[id0] || {}, alt = !row[id0] && (i.title || "") ? retailOf_(retail, i.title) : null;
     const id = alt && alt !== id0 ? alt : id0, r = row[id] || [];
+    // when the sold edition is another one (no Ultimate sold on its own: the Standard), its own name goes with its price
+    const otherEd = id !== id0 && r[1] && edKeyFull_(r[1]) !== edKeyFull_(i.title);
     return {
       mc: mcNum_(SC[id] || SC[id0]) || undefined,
       id: id, lid: id !== id0 ? id0 : undefined,   // lid: the id the list had (its old links go to this page)
-      title: i.title || r[1] || "",
+      title: (otherEd ? r[1] : i.title) || r[1] || "",
       publisher: i.publisher || r[2] || "",
       image: shortImg_(i.image) || r[6] || null,
       sq: shortImg_(i.square) || (SALE_ART[id] && shortImg_(SALE_ART[id].sq)) || SQUARE[id] || null,
@@ -1165,13 +1167,19 @@ function norm_(s) { return String(s || "").replace(/[™®©℠]/g, "").normaliz
 // use a store product that isn't sold on its own (the Game Pass version, often part of the retail editions).
 // The pick: a console version over a PC-only one, then the lowest regular price (the standard edition).
 // rows: full list rows [id, title, publisher, price, msrp, currency, image, rank, subs, pc, ...]
+// Also keyed by the full name, edition included (edKeyFull_): an Ultimate Edition listing goes to the Ultimate Edition
+// that's sold (retailOf_), not to the cheapest edition, which would show the Standard price under the Ultimate's name.
+function edKeyFull_(t) { return "=" + norm_(String(t || "").replace(/\s*[\(\[].*?[\)\]]/g, "").replace(/\b(xbox one|xbox series x\|s|xbox series x|windows|for pc|pc)\b/gi, "")); }
+function retailOf_(retail, t) { return retail[edKeyFull_(t)] || retail[editionKey_(t)]; }
 function retailEditions_(rows) {
   const best = Object.create(null);
   rows.forEach(r => {
     if (!r[0] || !r[1] || !(Number(r[4]) > 0 || Number(r[3]) > 0) || /\b(upgrade|bundle|pack|season pass|soundtrack|dlc)\b/i.test(r[1])) return;
     const k = editionKey_(r[1]), pc = r[9] || /\(pc\)|\bfor pc\b|\bwindows\b/i.test(r[1]) ? 1 : 0, m = Number(r[4]) || Number(r[3]);
-    const o = best[k];
-    if (!o || pc < o.pc || (pc === o.pc && m < o.m)) best[k] = { id: String(r[0]), pc: pc, m: m };
+    [k, edKeyFull_(r[1])].forEach(key => {
+      const o = best[key];
+      if (!o || pc < o.pc || (pc === o.pc && m < o.m)) best[key] = { id: String(r[0]), pc: pc, m: m };
+    });
   });
   const out = {};
   Object.keys(best).forEach(k => { out[k] = best[k].id; });
