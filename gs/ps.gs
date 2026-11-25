@@ -990,6 +990,9 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
     const e = fromGame(g);
     if (ok(e)) trendsale.push(e);
   });
+  // each product's place among the most downloaded games (past 30 days), 1 = most downloaded
+  const dlRank = Object.create(null);
+  (trendMore || trending).forEach((c, i) => (c.products || []).forEach(p => { if (p.id && !dlRank[p.id]) dlRank[p.id] = i + 1; }));
   // Top Metacritic deals (topMetaSale_ in xbox.gs)
   const metasale = topMetaSale_(games, psReadJson_("PS_SCORES_FILE_ID", {}), g => g.productId, g => (star(g.productId) || [0, 0])[1], fromGame, ok, N);
   const sections = {
@@ -1008,8 +1011,9 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
       .sort((a, b) => Date.parse(a.saleEnds) - Date.parse(b.saleEnds)).map(fromGame).filter(ok),
     upcoming: released.filter(e => e.time > now && e.time < now + 31 * 864e5).sort((a, b) => a.time - b.time).map(clean),
     recent: released.filter(e => e.time && e.time <= now && e.time > now - 7 * 864e5).sort((a, b) => b.time - a.time).map(clean),
-    // Deals on recent releases (recentDeals_ in xbox.gs)
-    newrel: recentDeals_(games.filter(g => psIsGame_(g.kind)), g => Date.parse(g.released) || 0, g => (star(g.productId) || [0, 0])[1], fromGame, ok, N)
+    // Deals on recent releases (recentDeals_ in xbox.gs), most downloaded (past 30 days) first
+    newrel: recentDeals_(games.filter(g => psIsGame_(g.kind)), g => Date.parse(g.released) || 0, g => (star(g.productId) || [0, 0])[1], fromGame, ok, N,
+      g => dlRank[g.productId] || 0), newrelV: 2   // newrelV 2: most popular first, with pop
   };
 
   // Posters of the best-selling games on sale, one per game, for the deals bar

@@ -919,6 +919,9 @@ function buildHome_(catalog, dated, gamePass, sales) {
   const popIds = rated.filter(id => RATINGS[id][1] >= SEE_ALL_RATINGS);
 
   const weekAgo = Number(Utilities.formatDate(new Date(Date.now() - 7 * 864e5), "UTC", "yyyyMMdd"));
+  // each game's place in the store's popularity order (the catalog comes in it), 1 = most popular
+  const storeRank = Object.create(null);
+  catalog.forEach((r, i) => { const id = String(r[0]).toUpperCase(); if (!storeRank[id]) storeRank[id] = i + 1; });
   const nRatings = g => (RATINGS[String(g.productId).toUpperCase()] || [0, 0])[1];
   // Trending deals: the "Trending games" order (the full list's), games on sale only, one per game
   const onSale = id => saleBy[id] && Number(saleBy[id].msrp) > Number(saleBy[id].price);
@@ -950,8 +953,9 @@ function buildHome_(catalog, dated, gamePass, sales) {
     // Newest discounts: the latest games whose price dropped, with NEWEST_MIN_RATINGS+ store ratings, most recent first
     // (the home page shows the 15 most recent, ranked by number of ratings)
     newest: sales.filter(g => g.newSale && nRatings(g) >= NEWEST_MIN_RATINGS).sort((a, b) => b.newSale - a.newSale || nRatings(b) - nRatings(a)).slice(0, 60).map(fromSale).filter(ok),
-    // Deals on recent releases (recentDeals_)
-    newrel: recentDeals_(sales.filter(g => isGame(String(g.productId).toUpperCase())), g => time(String(g.productId).toUpperCase()), nRatings, fromSale, ok, N)
+    // Deals on recent releases (recentDeals_), in the store's own order (the catalog's: most popular first)
+    newrel: recentDeals_(sales.filter(g => isGame(String(g.productId).toUpperCase())), g => time(String(g.productId).toUpperCase()), nRatings, fromSale, ok, N,
+      g => storeRank[String(g.productId).toUpperCase()] || 0), newrelV: 2   // newrelV 2: most popular first, with pop
   };
 
   // Game Pass tab: every Game Pass game, the 15 newest additions, and everything announced as coming
@@ -1267,14 +1271,15 @@ const SPOT_TOP = 20, SEE_ALL_RATINGS = 7000;
 // "Newest discounts" on the home page: only games with at least this many store ratings
 const NEWEST_MIN_RATINGS = 200;
 // Deals on recent releases (the both-stores home page): games out in the last RECENT_DEAL_DAYS days that are on sale, most
-// store ratings first, one per game, each with its release date. rel(g): a sale's release time (0 when unknown)
+// popular first (pop(g): the game's place in the store's own popularity order, 1 = most popular, 0 when it isn't in it; then
+// most store ratings), one per game, each with its release date and that place (pop). rel(g): a sale's release time (0 when unknown)
 const RECENT_DEAL_DAYS = 60;
-function recentDeals_(sales, rel, rated, toEntry, ok, n) {
-  const now = Date.now(), seen = Object.create(null);
+function recentDeals_(sales, rel, rated, toEntry, ok, n, pop) {
+  const now = Date.now(), seen = Object.create(null), place = g => (pop && pop(g)) || Infinity;
   return sales.filter(g => g.image && Number(g.price) < Number(g.msrp) && rel(g) && rel(g) <= now && rel(g) > now - RECENT_DEAL_DAYS * 864e5)
-    .sort((a, b) => rated(b) - rated(a) || rel(b) - rel(a))
+    .sort((a, b) => place(a) - place(b) || rated(b) - rated(a) || rel(b) - rel(a))
     .filter(g => { const t = editionKey_(g.title); if (!t || seen[t]) return false; return (seen[t] = true); })
-    .slice(0, n * 2).map(g => Object.assign(toEntry(g), { released: new Date(rel(g)).toISOString() })).filter(ok).slice(0, n);
+    .slice(0, n * 2).map(g => Object.assign(toEntry(g), { released: new Date(rel(g)).toISOString() }, pop && pop(g) ? { pop: pop(g) } : {})).filter(ok).slice(0, n);
 }
 // "Big discounts on popular games" (home page and its See all list): this much off or more
 const HOT_MIN_PCT = 60;
