@@ -8,7 +8,7 @@
 // Each person gets at most one email and one notification a run, listing everything new. A game is only mentioned again
 // when its price drops further, or after its sale ended and a new one started (data/alerts_sent.json remembers).
 //
-// Secrets: SOURCE_API, ALERT_KEY, RESEND_API_KEY (email), VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (push),
+// Secrets: SOURCE_API (or ALERTS_API + SITE_URL), ALERT_KEY, RESEND_API_KEY (email), VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY (push),
 // FCM_SERVICE_ACCOUNT (the app's notifications: the Firebase project's service account key, the whole JSON file).
 // ALERTS_DRY=1: logs what would be sent and sends nothing.
 const fs = require("fs"), path = require("path");
@@ -16,7 +16,11 @@ const { alertText } = require("./alert-text");   // the words, in the person's l
 const DATA = path.resolve(process.env.DATA_DIR || "data");
 const read = (f, d) => { try { return JSON.parse(fs.readFileSync(path.join(DATA, f), "utf8")); } catch (e) { return d; } };
 const DRY = !!process.env.ALERTS_DRY;
-const API = process.env.SOURCE_API, SITE = API ? new URL(API).origin : "";
+// ALERTS_API: where to ask for the alert list. The workflow points it at the site's pages.dev address, because
+// Cloudflare's Bot Fight Mode on gamedealtrack.com challenges requests from GitHub's runners and can't be skipped
+// for one path on the free plan. SITE_URL: the address put in the emails and notifications (the real domain).
+const API = process.env.ALERTS_API || process.env.SOURCE_API;
+const SITE = (process.env.SITE_URL || (process.env.SOURCE_API ? new URL(process.env.SOURCE_API).origin : "")).replace(/\/+$/, "");
 const XIMG = "https://store-images.s-microsoft.com/image/";
 const slug = t => String(t || "game").toLowerCase().normalize("NFKD").replace(/[™®©]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "game";
 const tNorm = t => typeof t === "number" ? { p: t, c: "USD", r: "US", pct: 0 } : t && typeof t === "object" ? { p: Number(t.p) || 0, c: t.c || "USD", r: t.r || "US", pct: Number(t.pct) || 0 } : null;
@@ -125,10 +129,13 @@ const subjectOf = (L, items) => {
 };
 
 async function main() {
-  if (!API || !process.env.ALERT_KEY) { console.log("SOURCE_API and ALERT_KEY are needed"); process.exit(1); }
+  if (!API || !SITE || !process.env.ALERT_KEY) { console.log("SOURCE_API (or ALERTS_API and SITE_URL) and ALERT_KEY are needed"); process.exit(1); }
   const r = await fetch(API, { method: "POST", body: JSON.stringify({ action: "alert_subs", key: process.env.ALERT_KEY }) });
-  const feed = await r.json().catch(() => ({}));
-  if (!feed.ok) { console.log("The site didn't give the alert list: " + r.status + " " + JSON.stringify(feed).slice(0, 200)); process.exit(1); }
+  const text = await r.text();
+  let feed = {};
+  try { feed = JSON.parse(text); } catch (e) {}
+  // a page that isn't JSON came from Cloudflare (a bot challenge, an error page), not from the site's /api
+  if (!feed.ok) { console.log("The site didn't give the alert list: " + r.status + " " + (r.headers.get("cf-mitigated") ? "(Cloudflare challenge) " : "") + text.slice(0, 200).replace(/\s+/g, " ")); process.exit(1); }
   const info = prices(), sent = read("alerts_sent.json", {}), today = new Date().toISOString().slice(0, 10);
   let webpush = null;
   if (process.env.VAPID_PRIVATE_KEY && process.env.VAPID_PUBLIC_KEY) {

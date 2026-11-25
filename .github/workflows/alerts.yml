@@ -24,6 +24,10 @@ jobs:
       AWS_DEFAULT_REGION: auto
       R2: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
       SOURCE_API: ${{ secrets.SOURCE_API }}
+      # Bot Fight Mode on gamedealtrack.com challenges GitHub's runners, so ask the pages.dev address (same deployment);
+      # the links in the emails still use the real domain
+      ALERTS_API: https://xbox-deal-tracker.pages.dev/api
+      SITE_URL: https://gamedealtrack.com
       ALERT_KEY: ${{ secrets.ALERT_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
