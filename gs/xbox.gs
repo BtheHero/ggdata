@@ -949,7 +949,9 @@ function buildHome_(catalog, dated, gamePass, sales) {
     under1: bargains_(sales, 1, fromSale, ok, nRatings), under5: bargains_(sales, 5, fromSale, ok, nRatings), under10: bargains_(sales, 10, fromSale, ok, nRatings),
     // Newest discounts: the latest games whose price dropped, with NEWEST_MIN_RATINGS+ store ratings, most recent first
     // (the home page shows the 15 most recent, ranked by number of ratings)
-    newest: sales.filter(g => g.newSale && nRatings(g) >= NEWEST_MIN_RATINGS).sort((a, b) => b.newSale - a.newSale || nRatings(b) - nRatings(a)).slice(0, 60).map(fromSale).filter(ok)
+    newest: sales.filter(g => g.newSale && nRatings(g) >= NEWEST_MIN_RATINGS).sort((a, b) => b.newSale - a.newSale || nRatings(b) - nRatings(a)).slice(0, 60).map(fromSale).filter(ok),
+    // Deals on recent releases (recentDeals_)
+    newrel: recentDeals_(sales.filter(g => isGame(String(g.productId).toUpperCase())), g => time(String(g.productId).toUpperCase()), nRatings, fromSale, ok, N)
   };
 
   // Game Pass tab: every Game Pass game, the 15 newest additions, and everything announced as coming
@@ -957,6 +959,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
   const gpComing = coming.slice().sort((a, b) => (time(b) > now) - (time(a) > now) || (time(a) > now ? time(a) - time(b) : time(b) - time(a))).map(entry).filter(ok);
   const gpData = { updatedAt: new Date().toISOString(), all: gpAll, added: added.map(entry).filter(ok), coming: gpComing };
   saveJsonToDrive_(gpData, "xbox_gamepass.json", "GAMEPASS_FILE_ID");
+  sections.gpadded = gpData.added.slice(0, N);   // the both-stores home page's "Recently added to Game Pass" row
   Logger.log("Game Pass lists: all " + gpAll.length + ", added " + gpData.added.length + ", coming " + gpComing.length);
 
   const file = saveJsonToDrive_(
@@ -1263,6 +1266,16 @@ function ratingJson_(id) {
 const SPOT_TOP = 20, SEE_ALL_RATINGS = 7000;
 // "Newest discounts" on the home page: only games with at least this many store ratings
 const NEWEST_MIN_RATINGS = 200;
+// Deals on recent releases (the both-stores home page): games out in the last RECENT_DEAL_DAYS days that are on sale, most
+// store ratings first, one per game, each with its release date. rel(g): a sale's release time (0 when unknown)
+const RECENT_DEAL_DAYS = 60;
+function recentDeals_(sales, rel, rated, toEntry, ok, n) {
+  const now = Date.now(), seen = Object.create(null);
+  return sales.filter(g => g.image && Number(g.price) < Number(g.msrp) && rel(g) && rel(g) <= now && rel(g) > now - RECENT_DEAL_DAYS * 864e5)
+    .sort((a, b) => rated(b) - rated(a) || rel(b) - rel(a))
+    .filter(g => { const t = editionKey_(g.title); if (!t || seen[t]) return false; return (seen[t] = true); })
+    .slice(0, n * 2).map(g => Object.assign(toEntry(g), { released: new Date(rel(g)).toISOString() })).filter(ok).slice(0, n);
+}
 // "Big discounts on popular games" (home page and its See all list): this much off or more
 const HOT_MIN_PCT = 60;
 // and at least this many store ratings (Xbox games get far fewer ratings than PlayStation ones)

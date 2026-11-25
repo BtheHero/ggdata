@@ -14,7 +14,8 @@
 //                 store that year, one per game, as its standard edition; the other store's Metascore when this one has none). Updated through the year and in January (late reviews); then it's kept as it is.
 //   data/<xbox|ps>_xref.json   {g: {game: [Metascore, first release]}}: read by the other store's lists (best of the year)
 //   <xbox|ps>_home.json sections.pubsale: a row for each big publisher (PUB_ROWS) with more than PUB_MIN games on sale;
-//                 sections.acclaimed: the acclaimed studios' upcoming games (the same as the lists'), for the home page's row.
+//                 sections.acclaimed: the acclaimed studios' upcoming games (the same as the lists'), for the home page's row;
+//                 sections.psadded (PlayStation): the newest PS Plus additions, for the both-stores home page.
 //
 // node jobs/lists.js xbox|ps
 const fs = require("fs"), path = require("path");
@@ -325,7 +326,8 @@ async function psPlus() {
   // page has no "From acclaimed publishers" row (the list page keeps it)
   const h = read(homeFile, null);
   if (h && h.sections) {
-    if (PS) { delete h.sections.acclaimed; delete h.sections.acclaimedBy; }
+    // (and the both-stores home page's "Recently added to PS Plus" row)
+    if (PS) { delete h.sections.acclaimed; delete h.sections.acclaimedBy; h.sections.psadded = out.psplus.added.slice(0, 15); }
     else { h.sections.acclaimed = out.acclaimed.games.slice(0, 20); h.sections.acclaimedBy = out.acclaimed.by; }
     delete h.sections.wanted; delete h.sections.wantedSrc; write(homeFile, h);
   }
