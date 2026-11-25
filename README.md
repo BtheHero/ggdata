@@ -20,6 +20,9 @@ Scheduled jobs that collect game store data (prices, sales, add-ons) and publish
 - `jobs/ps-posters.js`: PlayStation posters. Games the store has no portrait art for (about a third) get the portrait art
   of their PlayStation product, else the same game's Steam library art (looked up by the PlayStation details job), else
   its Xbox cover, instead of their square art cropped (`ps_posters.json`)
+- Game pages are kept after their sale ends (`gs/gamepages.gs` keepPages_): every page not in the full game list is remembered
+  in `<plat>_kept.json` and made again at the store's own price, checked every 21 days; once the store stops selling it,
+  its address goes to its game's page, or answers "gone" (410)
 - `gs/addons.gs`: Xbox add-ons, and what each edition includes (`xbox_bundles.json`); every add-on gets a game page
 - `jobs/social-card.js`: the weekly roundup's pictures (the week's top 5 deals, tall and wide), served by the site at /social-img/
 - `jobs/social.js`: posts big deals (2 a day on each store) and the week's best deals (Sundays) to Bluesky, Facebook, Instagram, Pinterest and X, one at a time through the day (`social-queue.yml`, hourly); setup in `SOCIAL.md`
