@@ -140,7 +140,7 @@ async function main() {
   let webpush = null;
   if (process.env.VAPID_PRIVATE_KEY && process.env.VAPID_PUBLIC_KEY) {
     webpush = require("web-push");
-    webpush.setVapidDetails("mailto:alerts@" + new URL(API).hostname, process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
+    webpush.setVapidDetails("mailto:alerts@" + new URL(SITE).hostname, process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
   }
   FCM = await fcmSetup().catch(e => { console.log("Firebase setup failed: " + e.message); return null; });
   const mail = process.env.RESEND_API_KEY;
@@ -174,7 +174,7 @@ async function main() {
       if (DRY) { console.log("[dry] email (" + L.lang + ") to " + u.email.replace(/^(.).*@/, "$1…@") + ": " + subjectOf(L, list)); delivered = true; }
       else {
         const res = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: "Bearer " + mail, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: process.env.ALERT_FROM || ("GameDealTrack <alerts@" + new URL(API).hostname + ">"), to: [u.email], subject: subjectOf(L, list), html: emailHtml(L, u, list),
+          body: JSON.stringify({ from: process.env.ALERT_FROM || ("GameDealTrack <alerts@" + new URL(SITE).hostname + ">"), to: [u.email], subject: subjectOf(L, list), html: emailHtml(L, u, list),
             headers: { "List-Unsubscribe": `<${unsubUrl(L, u)}>` } }) });
         if (res.ok) { emails++; delivered = true; } else console.log("Email failed (" + res.status + "): " + (await res.text()).slice(0, 200));
         await sleep(600);   // Resend allows a few emails a second
