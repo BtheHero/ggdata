@@ -418,6 +418,42 @@ function psOtherGame_(g, title) {
     /\b(collection|bundle|trilogy|double pack|pack|series|anthology)\b|\s[+&]\s/i.test(cleanTitle_(g.title));
   return bundle && !psSameGame_(g.title, title);
 }
+// The deals and the home page's games link to the game's page by the row's id and title, and the site answers an address
+// that isn't a page's own (a PlayStation edition's product id, a name spelled another way) with a redirect. Search engines
+// count each of those as a page that redirects, and crawl it as well as the page. So each row whose page has another
+// address gets pg: [the page's id, its name], and the site links there (lib/ssr.js and site.js gamePageUrl).
+// Mirrors the site's redirects (functions/game/[[path]].js): an edition's {a: id} (one step), then the name.
+function linkPages_(games, pre, salesFile) {
+  const ps = pre === "PS_";
+  const slug = t => String(t || "game").toLowerCase().normalize("NFKD").replace(/[™®©]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "game";
+  const pageOf = id => {
+    let k = String(id), g = games[k];
+    if (!g) { k = k.toUpperCase(); g = games[k]; }
+    if (g && g.a) { k = String(g.a); g = games[k]; }
+    return g && !g.a && g.t ? [k, g.t] : null;
+  };
+  let n = 0;
+  const mark = e => {
+    if (!e || typeof e !== "object") return;
+    const id = e.productId || e.id;
+    delete e.pg;
+    const p = id && pageOf(id);
+    if (p && (p[0] !== String(id) || slug(p[1]) !== slug(e.title))) { e.pg = p; n++; }
+  };
+  (salesFile.games || []).forEach(mark);
+  if ((salesFile.games || []).length) saveJsonToDrive_(salesFile, ps ? "ps_sales.json" : JSON_FILE_NAME, pre + "JSON_FILE_ID");
+  const home = psReadJson_(pre + "HOME_FILE_ID", null);
+  if (home && home.sections) {
+    Object.keys(home.sections).forEach(k => {
+      const s = home.sections[k];
+      if (Array.isArray(s)) s.forEach(mark);
+      else if (s && Array.isArray(s.games)) s.games.forEach(mark);
+    });
+    saveJsonToDrive_(home, ps ? "ps_home.json" : "xbox_home.json", pre + "HOME_FILE_ID");
+  }
+  console.log((ps ? "PlayStation" : "Xbox") + " deal and home page links sent straight to the game's page: " + n);
+}
+
 function gamePagesFor_(pre) {
   const ps = pre === "PS_";
   const cat = psReadJson_(pre + "CATALOG_FILE_ID", { games: [] }).games || [];
@@ -752,6 +788,7 @@ function gamePagesFor_(pre) {
     if (g.ed) g.ed.forEach(r => { if (r[1]) r[1] = psName_(r[1]); });
     if (g.ao && g.ao[1]) g.ao[1] = psName_(g.ao[1]);
   });
+  try { linkPages_(games, pre, salesFile); } catch (e) { console.log("Page links failed: " + e.message); }
   const shards = [];
   for (let n = 0; n < GAME_SHARDS; n++) shards.push({});
   Object.keys(games).forEach(id => { shards[shardOf_(id)][id] = games[id]; });
