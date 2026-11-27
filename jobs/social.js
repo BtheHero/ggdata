@@ -38,7 +38,8 @@ const MIN_PCT = Number(env.SOCIAL_MIN_PCT || 75);       // a deal is posted with
 const MIN_MC = Number(env.SOCIAL_MIN_METASCORE || 83);  // …a Metascore of at least this…
 const MIN_RATINGS = Number(env.SOCIAL_MIN_RATINGS || 2000);   // …and at least this many ratings in the store
 const DAILY = Math.max(1, Number(env.SOCIAL_DAILY || 2));   // deals posted a day on each store (Xbox, PlayStation)
-const REPOST_DAYS = 7;    // a game is posted at most once a week
+const REPOST_DAYS = 30;   // a game is posted at most once a month on each store
+const MAX_AGE_YEARS = 15; // games released longer ago than this aren't posted: old catalog titles draw little interest
 const PIN_API = env.PINTEREST_API || "https://api.pinterest.com";   // Trial apps can be pointed at https://api-sandbox.pinterest.com
 const X_DAILY_CAP = Number(env.X_DAILY_CAP || 15);      // X bills every post: a cap on the spend
 const PLAT = { xbox: { name: "Xbox", tags: ["Xbox", "XboxDeals", "GameDeals"] }, ps: { name: "PlayStation", tags: ["PlayStation", "PSDeals", "GameDeals"] } };
@@ -108,12 +109,12 @@ const pic = (p, w, shape) => {
 };
 const withUtm = (u, src) => u + (u.includes("?") ? "&" : "?") + "utm_source=" + src + "&utm_medium=social";
 const endsLine = e => e ? "⏰ Sale ends " + new Date(e).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" }) : "";
-// the game's Metascore and number of store ratings, from its game page (data/<plat>_games_<n>.json, gs/gamepages.gs:
-// mc, ra = [stars, count]), else the Metascore from <plat>_scores.json. A page that only points to another (a) is followed.
+// the game's Metascore, number of store ratings and release date, from its game page (data/<plat>_games_<n>.json,
+// gs/gamepages.gs: mc, ra = [stars, count], r), else the Metascore from <plat>_scores.json. A page that only points to another (a) is followed.
 const pageCache = {};
 let scoreFile = null;
 function reviewsOf(plat, id) {
-  let mc = 0, rc = 0;
+  let mc = 0, rc = 0, rel = 0;
   const page = k => {
     const f = plat + "_games_" + shardOf(k) + ".json";
     if (!(f in pageCache)) pageCache[f] = (load(f) || {}).games || {};
@@ -125,13 +126,15 @@ function reviewsOf(plat, id) {
     if (!g) continue;
     mc = mc || (Array.isArray(g.mc) ? Number(g.mc[0]) : Number(g.mc)) || 0;
     rc = Math.max(rc, (g.ra && Number(g.ra[1])) || 0);
+    const t = Date.parse(g.r);   // the earliest date found (a placeholder year like 9999 isn't one)
+    if (t && Number(String(g.r).slice(0, 4)) < 9000 && (!rel || t < rel)) rel = t;
   }
   if (!mc) {
     if (!scoreFile) scoreFile = load(plat === "ps" ? "ps_scores.json" : "scores.json") || {};
     const v = scoreFile[id] || scoreFile[String(id).toUpperCase()];
     mc = (Array.isArray(v) ? Number(v[0]) : Number(v)) || 0;
   }
-  return { mc, rc };
+  return { mc, rc, rel };
 }
 
 // ---------- what to post ----------
@@ -157,6 +160,7 @@ function dealPosts(plat) {
   console.log("Social " + plat + ": " + waiting + " waiting in the queue, room for " + room + " (" + DAILY + " a day)");
   const posted = read("social/" + plat + "-posted.json", {});
   const cutoff = new Date(Date.now() - REPOST_DAYS * 864e5).toISOString().slice(0, 10);
+  const oldest = new Date(); oldest.setUTCFullYear(oldest.getUTCFullYear() - MAX_AGE_YEARS); const oldestT = oldest.getTime();
   const games = (read(plat + "_sales.json", { games: [] }).games || []).filter(g => {
     const price = Number(g.price) || 0, msrp = Number(g.msrp) || 0;
     if (!g.productId || !g.title || !(price > 0) || !(msrp > price) || ADDON_TITLE.test(g.title)) return false;
@@ -164,6 +168,7 @@ function dealPosts(plat) {
     if ((posted[g.productId] || "") > cutoff || (posted["t:" + gameKey(g.title)] || "") > cutoff) return false;
     if ((1 - price / msrp) * 100 < MIN_PCT) return false;
     g.rev = reviewsOf(plat, g.productId);
+    if (g.rev.rel && g.rev.rel < oldestT) return false;   // an unknown release date doesn't rule a game out
     return g.rev.mc >= MIN_MC && g.rev.rc >= MIN_RATINGS;
   }).sort((a, b) => b.rev.mc - a.rev.mc || b.rev.rc - a.rev.rc);
   const seen = new Set(), picked = [];
