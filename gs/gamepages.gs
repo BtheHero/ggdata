@@ -598,7 +598,8 @@ function gamePagesFor_(pre) {
       pi: pid && pid !== r[0] ? pid : undefined, g: genresOf(pid, r[0]), d: descOf(pid, r[0]),
       q: catSquare_(r) || undefined,   // square art
       xp: r[15] ? 1 : undefined,   // Xbox Play Anywhere
-      pe: ps && r[16] ? String(r[16]).split(",") : undefined   // PlayStation: the game's editions (product ids), made into ed below
+      pe: ps && r[16] ? String(r[16]).split(",") : undefined,   // PlayStation: the game's editions (product ids), made into ed below
+      pp: ps && r[17] ? String(r[17]) : undefined   // PlayStation: the edition whose price the page shows (deleted with pe)
     };
     if (pid && pid !== r[0]) games[pid] = { a: r[0] };
   });
@@ -737,12 +738,16 @@ function gamePagesFor_(pre) {
         const e = ep[pid];
         // (a franchise page holds several games: "Call of Duty" has Modern Warfare 4, Black Ops 7…; only this game's editions)
         if (!e || !e[3] || e[1] === null || NOT_ED.test(e[3]) || psGameKey_(e[3]) !== game) return;
-        if (!shown.done && e[0] === g.pr && e[1] === g.m) { shown.done = true; return; }   // the edition the page shows
-        const was = games[pid];
-        if (was && was.a === id) return;   // the edition this page shows, under its product id
-        const to = was && was.a && games[was.a] && !games[was.a].a ? was.a : pid;   // another page's product: that page
+        // the edition the page shows: the one its price is for (pp), else the one with its price
+        if (g.pp ? pid === g.pp : !shown.done && e[0] === g.pr && e[1] === g.m) { shown.done = true; return; }
+        const was = games[pid], main = !!(was && was.a === id);
+        // the page's main product points here, and is usually the edition it shows. Not always: Sony lists Fable's Premium
+        // Edition first, the page shows the Standard Edition's price, and the Premium Edition then had no card and no page.
+        // (One named like the page is the same game for the other console, Gran Turismo 7 on PS5 next to PS4: no card.)
+        if (main && (!g.pp || g.pp === pid || norm_(psName_(e[3])) === norm_(g.t))) return;
+        const to = !main && was && was.a && games[was.a] && !games[was.a].a ? was.a : pid;   // another page's product: that page
         if (to !== pid && to === id) return;
-        if (!was && !made[pid]) {
+        if ((!was || main) && !made[pid]) {
           games[pid] = { t: psName_(e[3]), p: g.p, i: g.i, q: g.q, pr: e[0] || 0, m: e[1] || e[0] || 0, c: g.c, s: g.s, ti: g.ti, r: g.r, g: g.g,
                          d: g.d, ra: g.ra, mc: g.mc, pc: g.pc, h: hist[pid] || undefined, u: "https://store.playstation.com/en-us/product/" + pid };
           made[pid] = [id];
@@ -750,7 +755,7 @@ function gamePagesFor_(pre) {
         }
         list.push([to, to === pid ? psName_(e[3]) : games[to].t, art(to === pid && !made[pid] ? games[pid] : g), e[0] || 0, e[1] || 0]);
       });
-      delete g.pe;
+      delete g.pe; delete g.pp;
       if (!list.length) return;
       const have = new Set(list.map(x => x[0]));
       g.ed = list.sort((a, b) => (a[4] || 1e9) - (b[4] || 1e9)).concat((g.ed || []).filter(x => !have.has(x[0]))).slice(0, 10);
