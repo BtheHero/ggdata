@@ -945,8 +945,7 @@ function buildHome_(catalog, dated, gamePass, sales) {
     recent: near.filter(id => isGame(id) && time(id) <= now && time(id) > now - 7 * 864e5).sort((a, b) => time(b) - time(a)).map(entry).filter(ok),
     bestselling: topPaid.slice(0, N).map(entry).filter(ok),
     played: mostPlayed.map(entry).filter(ok).filter(e => e.price > 0).slice(0, N),   // paid games only
-    ending: sales.filter(g => g.saleEnds && Date.parse(g.saleEnds) < now + 7 * 864e5)
-      .sort((a, b) => Date.parse(a.saleEnds) - Date.parse(b.saleEnds)).map(fromSale).filter(ok),
+    ending: endingSoon_(sales, now, fromSale, ok, nRatings),
     // Bargains: discounted games under $1 / $5 / $10, most popular first (store order), one per game
     // Xbox's popularity order isn't reliable for cheap games: most store ratings first
     under1: bargains_(sales, 1, fromSale, ok, nRatings), under5: bargains_(sales, 5, fromSale, ok, nRatings), under10: bargains_(sales, 10, fromSale, ok, nRatings),
@@ -984,6 +983,19 @@ function topMetaSale_(sales, scores, idOf, nRatings, toEntry, ok, n) {
     // one per game: editions share the Metacritic page (slug), or at least the base title
     .filter(g => { const t = editionKey_(g.title), m = "mc:" + (sc(g)[1] || t); if (seen[t] || seen[m]) return false; seen[t] = seen[m] = true; return true; })
     .map(g => Object.assign(toEntry(g), { mc: sc(g)[0] })).filter(ok).slice(0, n);
+}
+
+// Sales ending within the week, soonest first, up to ENDING_MAX (the Android app's "Ending soon" row; the site's home
+// pages mix it into their deal pools). Capped because when a store-wide sale ends, nearly every deal is in it: on
+// Black Friday 4,800 PlayStation games, 95% of a 7 MB home file that the home page downloads before it can draw anything.
+// Sales ending the same day: most-rated first, so the cap keeps the games people know.
+// Used by both exports; rated(g) is the game's number of store ratings.
+const ENDING_MAX = 60;
+function endingSoon_(sales, now, toEntry, ok, rated) {
+  const end = g => Date.parse(g.saleEnds), day = g => Math.floor(end(g) / 864e5);
+  return sales.filter(g => g.saleEnds && end(g) < now + 7 * 864e5)
+    .sort((a, b) => day(a) - day(b) || rated(b) - rated(a) || end(a) - end(b))
+    .map(toEntry).filter(ok).slice(0, ENDING_MAX);
 }
 
 // Discounted games under `max` (US price), most popular first (the store's own order), one per game, up to 30.

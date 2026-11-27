@@ -1007,8 +1007,7 @@ function psBuildHome_(games, bestselling, trending, byRelease, cache, trials, tr
     // Newest discounts (NEWEST_MIN_RATINGS in exportXboxCatalog.gs)
     newest: games.filter(g => g.newSale && star(g.productId) && star(g.productId)[1] >= NEWEST_MIN_RATINGS)
       .sort((a, b) => b.newSale - a.newSale || star(b.productId)[1] - star(a.productId)[1]).slice(0, 60).map(fromGame).filter(ok),
-    ending: games.filter(g => g.saleEnds && Date.parse(g.saleEnds) < now + 7 * 864e5)
-      .sort((a, b) => Date.parse(a.saleEnds) - Date.parse(b.saleEnds)).map(fromGame).filter(ok),
+    ending: endingSoon_(games, now, fromGame, ok, g => (star(g.productId) || [0, 0])[1]),
     upcoming: released.filter(e => e.time > now && e.time < now + 31 * 864e5).sort((a, b) => a.time - b.time).map(clean),
     recent: released.filter(e => e.time && e.time <= now && e.time > now - 7 * 864e5).sort((a, b) => b.time - a.time).map(clean),
     // Deals on recent releases (recentDeals_ in xbox.gs), most downloaded (past 30 days) first
