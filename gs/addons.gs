@@ -222,17 +222,21 @@ function exportXboxAllAddOns() {
 // The store's own product data says it: an add-on's related products include its game ("Parent") and the editions
 // (bundles) that already include it ("Bundle"). Matching by name can't tell editions apart ("GTA VI Ultimate Edition
 // Upgrade" starts with "GTA VI Ultimate Edition", but it's for the Standard Edition), so the game pages use this first.
-// Saved in xbox_addon_rel.json: {r: {add-on id: [game id or "", [edition ids that include it], checked (ms)]}}.
+// Saved in xbox_addon_rel.json: {r: {add-on id: [game id or "", [edition ids that include it], checked (ms), XREL_V]}}.
 // New add-ons are looked up on every run; known ones again after XREL_RECHECK_DAYS, XREL_MAX per run.
-const XREL_MAX = 4000, XREL_RECHECK_DAYS = 30;
-const XREL_PARENT = /^(parent|parentproduct|prerequisite|requiredproduct|basegame)$/i;
+// The store calls the game "addOnParent". Without it, an old game's add-ons went to a newer game with a shorter name
+// (Fable Anniversary's 2014 packs, "Fable Hero's Weapons…", were listed on the 2026 Fable).
+// XREL_V: entries read before that are looked up again first, not after XREL_RECHECK_DAYS.
+const XREL_MAX = 4000, XREL_RECHECK_DAYS = 30, XREL_V = 2;
+const XREL_PARENT = /^(addonparent|parent|parentproduct|prerequisite|requiredproduct|basegame)$/i;
 function xAddOnRelations_() {
   const t0 = Date.now(), file = psReadJson_("XADDON_REL_FILE_ID", { r: {} }), rel = file.r || {};
   const ids = Object.keys(psReadJson_("XADDONS_ALL_FILE_ID", { a: {} }).a || {})
     .concat((psReadJson_("XADDONS_FILE_ID", { games: [] }).games || []).map(g => g.productId)).filter(Boolean)
     .map(id => String(id).toUpperCase()).filter((id, i, a) => a.indexOf(id) === i);
-  const due = ids.filter(id => !rel[id] || Date.now() - rel[id][2] > XREL_RECHECK_DAYS * 864e5)
-    .sort((a, b) => (rel[a] ? 1 : 0) - (rel[b] ? 1 : 0)).slice(0, XREL_MAX);
+  const fresh = id => rel[id] && rel[id][3] === XREL_V;
+  const due = ids.filter(id => !fresh(id) || Date.now() - rel[id][2] > XREL_RECHECK_DAYS * 864e5)
+    .sort((a, b) => (fresh(a) ? 1 : 0) - (fresh(b) ? 1 : 0)).slice(0, XREL_MAX);
   let found = 0, kinds = {};
   for (let i = 0; i < due.length && Date.now() - t0 < 8 * 60 * 1000; i += 160) {
     const chunks = [];
@@ -253,11 +257,11 @@ function xAddOnRelations_() {
         list.forEach(x => { kinds[x.RelationshipType] = (kinds[x.RelationshipType] || 0) + 1; });
         const parent = list.find(x => XREL_PARENT.test(String(x.RelationshipType || "")));
         const bundles = list.filter(x => /^bundle$/i.test(String(x.RelationshipType || ""))).map(x => String(x.RelatedProductId).toUpperCase());
-        rel[id] = [parent ? String(parent.RelatedProductId).toUpperCase() : "", bundles, Date.now()];
+        rel[id] = [parent ? String(parent.RelatedProductId).toUpperCase() : "", bundles, Date.now(), XREL_V];
         seen[id] = 1;
         if (parent) found++;
       });
-      chunks[n].forEach(id => { if (!seen[id]) rel[id] = ["", [], Date.now()]; });   // not in the catalog (any more)
+      chunks[n].forEach(id => { if (!seen[id]) rel[id] = ["", [], Date.now(), XREL_V]; });   // not in the catalog (any more)
     });
   }
   Object.keys(rel).forEach(id => { if (ids.indexOf(id) < 0 && Date.now() - rel[id][2] > 90 * 864e5) delete rel[id]; });
